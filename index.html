@@ -365,7 +365,7 @@ footer { font-size: 0.78rem; color: var(--muted); max-width: 65ch; }
 'use strict';
 
 /* Keep in step with VERSION in sw.js. */
-const APP_VERSION = 6;
+const APP_VERSION = 7;
 
 /* ---------- Units & physical constants ---------- */
 const UNITS = {
@@ -1049,7 +1049,7 @@ function renderRows() {
     const brandOpts = has(ing, 's') ? '' : `
       <label class="row-brand"><span class="label">Brand</span>
       <select class="field brand" id="brand-${i}" aria-label="Brand of ${esc(base.name)}">
-        <option value="">Typical brand</option>
+        <option value="">Generic</option>
         ${brandsFor(base.id).map(b => `<option value="${b.id}"${brand && b.id === brand.id ? ' selected' : ''}>${esc(b.name)}</option>`).join('')}
         <option value="__new">+ Add brand…</option>
         ${brand ? `<option value="__edit">Edit ${esc(brand.name)}…</option>` : ''}
@@ -1263,7 +1263,7 @@ function renderBrandStep() {
     b.addEventListener('click', run);
     list.appendChild(b);
   };
-  option('Typical brand', ingMeta(ing), () => pick(ing));
+  option('Generic', ingMeta(ing), () => pick(ing));
   brandsFor(ing.id).forEach(br => option(esc(br.name), ingMeta({ ...ing, sugar: br.sugar, abv: br.abv }), () => pick(ing, br.id)));
   const actions = document.createElement('div');
   actions.className = 'grid2'; actions.style.cssText = 'display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:12px 0';
