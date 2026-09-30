@@ -104,6 +104,16 @@ button, input, select { font: inherit; color: inherit; }
 .stat .val { font-family: var(--font-data); font-variant-numeric: tabular-nums; font-size: 1.3rem; font-weight: 500; }
 .stat .sub { font-size: 0.78rem; color: var(--muted); }
 
+.level { display: flex; flex-direction: column; gap: 6px; }
+.level-do { font-weight: 700; font-size: 0.9rem; text-align: right; }
+.steps { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.steps span {
+  text-align: center; font-family: var(--font-data); font-variant-numeric: tabular-nums; font-size: 0.75rem;
+  padding: 6px 0; border-radius: 6px; background: var(--surface-2); color: var(--muted);
+}
+.steps span.base { box-shadow: inset 0 0 0 1px var(--muted); }
+.steps span.on { background: var(--accent); color: var(--accent-ink); font-weight: 700; box-shadow: none; }
+.level-why { margin: 0; font-size: 0.85rem; color: var(--muted); }
 .gauge { display: flex; flex-direction: column; gap: 4px; }
 .gauge-head { display: flex; justify-content: space-between; align-items: baseline; }
 .bar { position: relative; height: 14px; border-radius: 7px; overflow: hidden; display: flex; }
@@ -250,6 +260,11 @@ footer { font-size: 0.78rem; color: var(--muted); max-width: 65ch; }
     <div>
       <div class="v-title" id="v-title">…</div>
       <div class="v-sub" id="v-sub"></div>
+    </div>
+    <div class="level" id="level">
+      <div class="gauge-head"><span class="label">Frozen level</span><span class="level-do" id="level-do"></span></div>
+      <div class="steps" id="steps" aria-hidden="true"></div>
+      <p class="level-why" id="level-why"></p>
     </div>
     <div class="stats">
       <div class="stat"><span class="label">Sugar</span><span class="val" id="s-sugar">0%</span><span class="sub">g per 100 ml</span></div>
@@ -520,6 +535,25 @@ const roundAmt = (v, unit) => unit === 'ml' || unit === 'g' ? Math.max(1, Math.r
 const ingMeta = ing => (has(ing, 's') ? '100% sugar' : fmt(ing.sugar) + '% sugar') + (ing.abv ? ' · ' + fmt(ing.abv) + '% ABV' : '');
 
 /* ---------- Analysis ---------- */
+/* Estimated freezing point (°C) of a mix with this sugar % (g/100 ml) and ABV. */
+function freezePoint(sugarPct, abv) {
+  const waterKg = Math.max(100 - sugarPct * SUGAR_ML_PER_G - abv, 20) / 1000;
+  return -1.86 * ((sugarPct / SUGAR_MOLAR) + (abv * 0.789 / 46.07)) / waterKg;
+}
+/* What each preset is tuned for: [sugar %, ABV]. Frozen level advice is relative to these. */
+const PRESET_BASE = { 'Slush': [10, 0], 'Frozen Juice': [10, 0], 'Spiked Slush': [10, 8], 'Milkshake': [10, 0], 'Frappé': [10, 0] };
+const LEVEL_MAX_ADJ = 3;
+function frozenLevel(preset, sugarPct, abv) {
+  const [s, a] = PRESET_BASE[preset];
+  const base = freezePoint(s, a), fp = freezePoint(sugarPct, abv);
+  const step = 0.38 * Math.abs(base);
+  const adj = Math.max(-LEVEL_MAX_ADJ, Math.min(LEVEL_MAX_ADJ, Math.round((base - fp) / step)));
+  let why;
+  if (adj === 0) why = `This mix is close to what the ${preset} preset expects.`;
+  else if (adj > 0) why = (abv > a + 1 ? 'Extra alcohol' : 'Extra sugar') + ' keeps this mix soft, so a colder setting helps it firm up.';
+  else why = (a > 0 && abv < a - 1 ? 'With less alcohol than usual' : 'With less sugar than usual') + ' this mix freezes easily and can turn icy on a colder setting.';
+  return { adj, why };
+}
 function measure(row, ing) {
   const amt = Number(row.amt) > 0 ? Number(row.amt) : 0;
   if (has(ing, 's')) {
@@ -552,8 +586,7 @@ function analyze() {
   out.sugarPct = sugar / vol * 100;
   out.abv = eth / vol * 100;
   const creamyFrac = creamy / vol;
-  const waterKg = Math.max(vol - sugar * SUGAR_ML_PER_G - eth, vol * 0.2) / 1000;
-  out.fpC = -1.86 * ((sugar / SUGAR_MOLAR) + (eth * 0.789 / 46.07)) / waterKg;
+  out.fpC = freezePoint(out.sugarPct, out.abv);
 
   let level = 'yes';
   const worse = l => { if (l === 'no' || (l === 'maybe' && level === 'yes')) level = l; };
@@ -625,6 +658,7 @@ function analyze() {
     : allJuice ? 'Frozen Juice'
     : 'Slush';
   if (out.preset === 'Frozen Juice') add('info', '100% juice', 'The Frozen Juice preset is designed for straight juice.');
+  out.frozen = frozenLevel(out.preset, out.sugarPct, out.abv);
   out.level = level;
   return out;
 }
@@ -677,6 +711,18 @@ function renderAnalysis() {
   $('v-title').textContent = TITLES[a.level];
   $('v-sub').innerHTML = a.level === 'empty' ? 'Build your mix below to see if it will freeze.'
     : (a.level === 'no' ? 'After fixing, use the ' : 'Use the ') + `<span class="preset">${a.preset}</span> preset`;
+  const showLevel = a.level === 'yes' || a.level === 'maybe';
+  $('level').hidden = !showLevel;
+  if (showLevel) {
+    const { adj, why } = a.frozen;
+    const times = n => n === 1 ? 'once' : n === 2 ? 'twice' : n + ' times';
+    $('level-do').textContent = adj === 0 ? 'Keep the preset level' : `Tap ${adj > 0 ? '▲' : '▼'} ${times(Math.abs(adj))}`;
+    $('steps').innerHTML = Array.from({ length: LEVEL_MAX_ADJ * 2 + 1 }, (_, k) => {
+      const v = k - LEVEL_MAX_ADJ;
+      return `<span class="${v === adj ? 'on' : v === 0 ? 'base' : ''}">${v === 0 ? 'Preset' : (v > 0 ? '+' : '−') + Math.abs(v)}</span>`;
+    }).join('');
+    $('level-why').textContent = why + ' This is a starting point: if it comes out icy, go down a level. If it comes out runny, go up.';
+  }
   $('s-sugar').textContent = fmt(a.sugarPct) + '%';
   $('s-abv').textContent = fmt(a.abv) + '%';
   $('s-fp').textContent = fmtTemp(a.fpC);
