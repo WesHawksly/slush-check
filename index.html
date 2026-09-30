@@ -1,0 +1,1060 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1558D6">
+<meta name="description" content="Check whether a drink mix will turn to slush in a Ninja SLUSHi.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Slush Check</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800&family=Atkinson+Hyperlegible:wght@400;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* Layout: single phone column. Sticky header with a live verdict pill, then verdict panel, recipe, saved mixes. */
+:root {
+  --bg: #EAF0F6;          /* frost */
+  --surface: #FFFFFF;
+  --surface-2: #DDE6F0;
+  --ink: #0E1A2C;
+  --muted: #56677D;
+  --line: #C6D2E0;
+  --accent: #1558D6;      /* blue raspberry */
+  --accent-ink: #FFFFFF;
+  --good: #16804A;
+  --warn: #A86A0C;
+  --bad: #C42540;
+  --font-display: "Unbounded", "Arial Rounded MT Bold", system-ui, sans-serif;
+  --font-body: "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-data: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Menlo, monospace;
+  --radius: 14px;
+  color-scheme: light;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0A111D; --surface: #121B2B; --surface-2: #1B2638; --ink: #E4ECF7; --muted: #92A2B8;
+    --line: #27354B; --accent: #5E9BFF; --accent-ink: #06101F; --good: #3FD08A; --warn: #F0B04A; --bad: #FF6D84;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0A111D; --surface: #121B2B; --surface-2: #1B2638; --ink: #E4ECF7; --muted: #92A2B8;
+  --line: #27354B; --accent: #5E9BFF; --accent-ink: #06101F; --good: #3FD08A; --warn: #F0B04A; --bad: #FF6D84;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font: 400 16px/1.5 var(--font-body);
+  padding-inline: 16px; padding-block: 0 48px;
+}
+[hidden] { display: none !important; }
+.app { max-width: 34rem; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+h1, h2, h3 { font-family: var(--font-display); margin: 0; text-wrap: balance; letter-spacing: -0.01em; }
+h2 { font-size: 1rem; font-weight: 700; }
+.label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 700; }
+.num { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+/* Header */
+.top {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5;
+  margin-inline: -16px; padding: 12px 16px;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid transparent;
+}
+.top-inner { max-width: 34rem; margin: 0 auto; display: flex; align-items: center; gap: 10px; }
+.brand { font-family: var(--font-display); font-weight: 800; font-size: 1.15rem; letter-spacing: -0.02em; }
+.brand span { color: var(--accent); }
+.pill {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: 999px; font-size: 0.8rem; font-weight: 700;
+  background: var(--surface); border: 1px solid var(--line); white-space: nowrap;
+}
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: none; }
+.lvl-yes .dot { background: var(--good); }
+.lvl-maybe .dot { background: var(--warn); }
+.lvl-no .dot { background: var(--bad); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; background: var(--surface); flex: none; }
+.seg button { border: 0; background: none; padding: 4px 10px; font-size: 0.8rem; font-weight: 700; cursor: pointer; color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+
+/* Verdict */
+.verdict {
+  --v: var(--muted);
+  background: var(--surface); border-radius: var(--radius);
+  border: 1px solid var(--line); border-top: 6px solid var(--v);
+  padding: 18px 18px 16px; display: flex; flex-direction: column; gap: 14px;
+}
+.verdict.lvl-yes { --v: var(--good); }
+.verdict.lvl-maybe { --v: var(--warn); }
+.verdict.lvl-no { --v: var(--bad); }
+.v-title { font-size: clamp(1.7rem, 8vw, 2.3rem); font-weight: 800; color: var(--v); line-height: 1.05; }
+.v-sub { color: var(--ink); font-weight: 700; }
+.v-sub .preset { color: var(--accent); }
+.stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; }
+.stat { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.stat .val { font-family: var(--font-data); font-variant-numeric: tabular-nums; font-size: 1.3rem; font-weight: 500; }
+.stat .sub { font-size: 0.78rem; color: var(--muted); }
+
+.gauge { display: flex; flex-direction: column; gap: 4px; }
+.gauge-head { display: flex; justify-content: space-between; align-items: baseline; }
+.bar { position: relative; height: 14px; border-radius: 7px; overflow: hidden; display: flex; }
+.bar i { display: block; height: 100%; }
+.z-bad { background: color-mix(in srgb, var(--bad) 70%, var(--surface)); }
+.z-warn { background: color-mix(in srgb, var(--warn) 60%, var(--surface)); }
+.z-good { background: color-mix(in srgb, var(--good) 75%, var(--surface)); }
+.z-soft { background: color-mix(in srgb, var(--good) 40%, var(--surface)); }
+.bar-wrap { position: relative; padding-top: 4px; }
+.marker {
+  position: absolute; top: 0; width: 4px; height: 22px; margin-left: -2px; border-radius: 2px;
+  background: var(--ink); box-shadow: 0 0 0 2px var(--surface); transition: left .3s ease;
+}
+.ticks { position: relative; height: 1.1em; font-size: 0.7rem; color: var(--muted); font-family: var(--font-data); margin-top: 6px; }
+.ticks span { position: absolute; transform: translateX(-50%); }
+.ticks span:first-child { transform: none; }
+.ticks span:last-child { transform: translateX(-100%); }
+.zones { display: flex; justify-content: space-between; font-size: 0.72rem; color: var(--muted); }
+
+/* Issues */
+.issues { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.issue { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 10px; align-items: start; }
+.chip {
+  grid-row: span 3; font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+  padding: 2px 7px; border-radius: 6px; margin-top: 2px; border: 1px solid currentColor;
+}
+.chip.bad { color: var(--bad); } .chip.warn { color: var(--warn); } .chip.info { color: var(--accent); }
+.issue strong { font-weight: 700; }
+.issue p { margin: 0; color: var(--muted); font-size: 0.92rem; }
+.issue .act { justify-self: start; margin-top: 4px; }
+
+/* Buttons */
+.btn {
+  border: 1px solid var(--line); background: var(--surface); border-radius: 10px;
+  padding: 8px 14px; font-weight: 700; cursor: pointer; min-height: 40px;
+}
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.small { padding: 4px 10px; min-height: 32px; font-size: 0.85rem; }
+.btn.ghost { background: transparent; }
+.btn.danger { color: var(--bad); }
+.btn:active { transform: translateY(1px); }
+
+/* Recipe */
+section.block { display: flex; flex-direction: column; gap: 12px; }
+.block-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.example-note {
+  font-size: 0.85rem; color: var(--muted); background: var(--surface-2); border-radius: 10px; padding: 8px 12px;
+}
+.rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.row {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  padding: 10px 10px 10px 14px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 10px; align-items: center;
+}
+.row-name { font-weight: 700; line-height: 1.25; }
+.row-meta { font-size: 0.78rem; color: var(--muted); font-family: var(--font-data); }
+.row-amt { display: flex; gap: 6px; align-items: center; }
+.row-amt input { width: 4.6rem; text-align: right; }
+.field {
+  border: 1px solid var(--line); background: var(--bg); border-radius: 8px; padding: 6px 8px; min-height: 40px;
+}
+.row-amt select { padding-inline: 4px; }
+.row-brand { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; min-width: 0; }
+.row-amt { gap: 10px; }
+.row-amt .label, .row-brand .label { flex: none; width: 4rem; }
+.row-brand select { flex: 1; min-width: 0; text-overflow: ellipsis; }
+.form.brand-form { grid-column: 1 / -1; border-top: 1px solid var(--line); padding: 10px 0 2px; }
+.brand-form .grid3 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr) minmax(0, 1fr); gap: 8px; }
+.brand-form input, .brand-form select { width: 100%; }
+.form-btns { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.x { border: 0; background: none; color: var(--muted); font-size: 1.4rem; line-height: 1; width: 36px; height: 40px; cursor: pointer; border-radius: 8px; }
+.empty { text-align: center; color: var(--muted); padding: 22px 12px; border: 2px dashed var(--line); border-radius: 12px; }
+.add-btn { width: 100%; min-height: 48px; font-size: 1rem; }
+
+/* Saved */
+.save-row { display: flex; gap: 8px; }
+.save-row input { flex: 1; min-width: 0; }
+.saved { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.saved li { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.saved li .nm { flex: 1; min-width: 0; font-weight: 700; overflow-wrap: anywhere; }
+.saved li .meta { font-size: 0.78rem; color: var(--muted); font-weight: 400; display: block; font-family: var(--font-data); }
+
+details.more { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+details.more summary { cursor: pointer; font-weight: 700; }
+details.more .inner { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; color: var(--muted); font-size: 0.92rem; max-width: 65ch; }
+details.more p { margin: 0; }
+.cap-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.cap-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; color: var(--ink); }
+
+/* Picker sheet */
+dialog.sheet {
+  width: 100%; max-width: 34rem; max-height: 88vh; max-height: 88dvh; margin: auto auto 0; padding: 0;
+  border: 0; border-radius: 18px 18px 0 0; background: var(--surface); color: var(--ink);
+}
+dialog.sheet::backdrop { background: rgb(5 10 20 / 0.55); }
+.sheet-inner { display: flex; flex-direction: column; max-height: 88vh; max-height: 88dvh; }
+.sheet-head { padding: 14px 16px 10px; display: flex; flex-direction: column; gap: 10px; border-bottom: 1px solid var(--line); }
+.sheet-title { display: flex; align-items: center; justify-content: space-between; }
+.cats { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+.cats button {
+  flex: none; border: 1px solid var(--line); background: var(--bg); border-radius: 999px; padding: 4px 11px; font-size: 0.82rem; cursor: pointer; white-space: nowrap;
+}
+.cats button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.list { overflow-y: auto; padding: 6px 8px calc(16px + env(safe-area-inset-bottom, 0px)); flex: 1; }
+.list button.ing {
+  width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 10px; text-align: left;
+  border: 0; background: none; padding: 10px 8px; border-radius: 8px; cursor: pointer; border-bottom: 1px solid var(--line);
+}
+.list button.ing:hover { background: var(--surface-2); }
+.list .ing .meta { font-size: 0.75rem; color: var(--muted); font-family: var(--font-data); white-space: nowrap; }
+.list .cat-h { padding: 12px 8px 2px; }
+.list .mine { display: flex; align-items: center; }
+.list .mine button.ing { flex: 1; }
+.form { display: flex; flex-direction: column; gap: 10px; padding: 12px 8px; }
+.form label { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; font-weight: 700; }
+.form .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.form .checks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 10px; }
+.form .checks label { flex-direction: row; align-items: center; gap: 8px; font-weight: 400; }
+.form .hint { font-size: 0.8rem; color: var(--muted); margin: 0; }
+.form-err { color: var(--bad); font-size: 0.85rem; margin: 0; }
+
+.toast {
+  position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
+  background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 10px; font-weight: 700; font-size: 0.9rem;
+  z-index: 20; max-width: calc(100% - 32px);
+}
+footer { font-size: 0.78rem; color: var(--muted); max-width: 65ch; }
+@media (prefers-reduced-motion: reduce) { .marker { transition: none; } }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="top-inner">
+    <div class="brand">Slush<span>Check</span></div>
+    <div class="pill" id="pill"><span class="dot"></span><span id="pill-text">…</span></div>
+    <div class="seg" role="group" aria-label="Units">
+      <button type="button" id="u-oz" data-unit="floz">oz</button>
+      <button type="button" id="u-ml" data-unit="ml">ml</button>
+    </div>
+  </div>
+</header>
+
+<main class="app">
+  <section class="verdict" id="verdict" aria-live="polite">
+    <div>
+      <div class="v-title" id="v-title">…</div>
+      <div class="v-sub" id="v-sub"></div>
+    </div>
+    <div class="stats">
+      <div class="stat"><span class="label">Sugar</span><span class="val" id="s-sugar">0%</span><span class="sub">g per 100 ml</span></div>
+      <div class="stat"><span class="label">Alcohol</span><span class="val" id="s-abv">0%</span><span class="sub">ABV</span></div>
+      <div class="stat"><span class="label">Freezes at</span><span class="val" id="s-fp">32°F</span><span class="sub" id="s-fp-sub">estimate</span></div>
+      <div class="stat"><span class="label">Batch</span><span class="val" id="s-vol">0</span><span class="sub" id="s-vol-sub"></span></div>
+    </div>
+    <div class="gauge" aria-hidden="true">
+      <div class="gauge-head"><span class="label">Sugar scale</span><span class="label" id="g-read"></span></div>
+      <div class="bar-wrap">
+        <div class="bar" id="bar"></div>
+        <div class="marker" id="marker"></div>
+      </div>
+      <div class="ticks" id="ticks"></div>
+    </div>
+    <ul class="issues" id="issues"></ul>
+  </section>
+
+  <section class="block">
+    <div class="block-head">
+      <h2>Your mix</h2>
+      <button type="button" class="btn small ghost" id="clear">Clear</button>
+    </div>
+    <div class="example-note" id="example-note">This is an example recipe. Tap <strong>Clear</strong> to start your own.</div>
+    <ul class="rows" id="rows"></ul>
+    <div class="empty" id="empty" hidden>No ingredients yet. Add what you plan to pour in.</div>
+    <button type="button" class="btn primary add-btn" id="add">+ Add ingredient</button>
+  </section>
+
+  <section class="block">
+    <h2>Saved mixes</h2>
+    <form class="save-row" id="save-form">
+      <input class="field" id="save-name" placeholder="Name this mix" maxlength="60" autocomplete="off">
+      <button class="btn" type="submit">Save</button>
+    </form>
+    <ul class="saved" id="saved"></ul>
+    <p class="label" id="saved-empty" style="text-transform:none;letter-spacing:0;font-weight:400">Mixes you save show up here.</p>
+  </section>
+
+  <details class="more" id="settings">
+    <summary>Machine fill lines</summary>
+    <div class="inner">
+      <p>Set these to match the MIN and MAX lines on your vessel. The app warns you when a batch falls outside them.</p>
+      <div class="cap-grid">
+        <label>Min fill <input class="field num" id="cap-min" inputmode="decimal"></label>
+        <label>Max fill <input class="field num" id="cap-max" inputmode="decimal"></label>
+      </div>
+    </div>
+  </details>
+
+  <details class="more">
+    <summary>How the check works</summary>
+    <div class="inner">
+      <p>Sugar and alcohol lower the freezing point of a drink. That keeps the ice crystals small and loose so the machine can churn them into slush. With too little sugar the water freezes into hard ice. With too much sugar or alcohol, it barely freezes.</p>
+      <p>The app adds up the sugar grams and alcohol in each ingredient, divides by the total volume, and compares the result with Ninja's guidance: at least 4% sugar for any slush, and 2.8–16% ABV for the Spiked Slush preset. Mixes with 6–16% sugar give the best texture.</p>
+      <p>The ingredient values are typical label numbers. Brands vary a lot, so for exact results pick <strong>+ Add brand…</strong> on an ingredient and enter the numbers from its label. The app remembers each brand for next time.</p>
+    </div>
+  </details>
+
+  <footer>Estimates only. Check your Ninja SLUSHi manual for the rules that apply to your model.</footer>
+</main>
+
+<dialog class="sheet" id="sheet">
+  <div class="sheet-inner">
+    <div class="sheet-head">
+      <div class="sheet-title">
+        <h2 id="sheet-title">Add ingredient</h2>
+        <button type="button" class="x" id="sheet-close" aria-label="Close">×</button>
+      </div>
+      <div id="picker-head">
+        <input class="field" id="search" type="search" placeholder="Search ingredients" autocomplete="off" style="width:100%">
+      </div>
+      <div class="cats" id="cats"></div>
+    </div>
+    <div class="list" id="list"></div>
+  </div>
+</dialog>
+
+<div class="toast" id="toast" hidden></div>
+
+<script>
+(() => {
+'use strict';
+
+/* ---------- Units & physical constants ---------- */
+const UNITS = {
+  floz: { label: 'fl oz', ml: 29.5735 },
+  ml:   { label: 'ml',    ml: 1 },
+  cup:  { label: 'cup',   ml: 236.588 },
+  tbsp: { label: 'tbsp',  ml: 14.787 },
+  tsp:  { label: 'tsp',   ml: 4.929 },
+  g:    { label: 'g' },
+};
+const LIQUID_UNITS = ['floz', 'ml', 'cup', 'tbsp', 'tsp'];
+const SOLID_UNITS = ['g', 'tbsp', 'tsp', 'cup'];
+const SOLID_G_PER_ML = 0.85;   // bulk density of granulated sugar
+const SUGAR_ML_PER_G = 0.62;   // volume that dissolved sugar adds to a drink
+const SUGAR_MOLAR = 300;       // blend of sucrose (342) and fruit sugars (180)
+
+/* Thresholds. Hard limits follow Ninja's published guidance; texture bands are rules of thumb. */
+const R = {
+  minSugar: 4, lowSugar: 6, softSugar: 16, maxSugar: 22,
+  spikedMin: 2.8, strongAbv: 12, maxAbv: 16,
+  creamy: 0.25,
+  targetSugar: 9, targetAbv: 10, targetSweet: 14,
+};
+
+/* ---------- Ingredient library ----------
+   sugar = grams per 100 ml (per 100 g for solids), abv = % alcohol by volume.
+   flags: c creamy (milk/cream), p pulp or solids, f carbonated, j 100% juice, k coffee, s solid (measured by weight) */
+const CATS = ['Soda', 'Juice', 'Energy & sports', 'Syrups & sweeteners', 'Milk & cream', 'Coffee & tea', 'Spirits', 'Liqueurs', 'Wine, beer & seltzer', 'Cocktail mixers', 'Other'];
+const LIB = [];
+const I = (id, name, cat, sugar, abv = 0, flags = '') => LIB.push({ id, name, cat, sugar, abv, flags });
+
+I('cola', 'Cola', 'Soda', 10.6, 0, 'f');
+I('lemon-lime-soda', 'Lemon-lime soda (e.g. Sprite)', 'Soda', 10.3, 0, 'f');
+I('citrus-soda', 'Citrus soda (e.g. Mountain Dew)', 'Soda', 13, 0, 'f');
+I('orange-soda', 'Orange soda', 'Soda', 12.4, 0, 'f');
+I('grape-soda', 'Grape soda', 'Soda', 13, 0, 'f');
+I('root-beer', 'Root beer', 'Soda', 12, 0, 'f');
+I('cream-soda', 'Cream soda', 'Soda', 13, 0, 'f');
+I('pepper-soda', 'Dr Pepper–style soda', 'Soda', 11, 0, 'f');
+I('ginger-ale', 'Ginger ale', 'Soda', 9, 0, 'f');
+I('tonic', 'Tonic water', 'Soda', 9, 0, 'f');
+I('diet-soda', 'Diet / zero-sugar soda', 'Soda', 0, 0, 'f');
+I('seltzer', 'Club soda / seltzer', 'Soda', 0, 0, 'f');
+
+I('oj', 'Orange juice, no pulp', 'Juice', 8.8, 0, 'j');
+I('oj-pulp', 'Orange juice, with pulp', 'Juice', 8.8, 0, 'jp');
+I('apple-juice', 'Apple juice', 'Juice', 10, 0, 'j');
+I('grape-juice', 'Grape juice (purple)', 'Juice', 15, 0, 'j');
+I('white-grape', 'White grape juice', 'Juice', 16, 0, 'j');
+I('pineapple-juice', 'Pineapple juice', 'Juice', 10, 0, 'j');
+I('cranberry-cocktail', 'Cranberry juice cocktail', 'Juice', 12.5);
+I('cranberry-100', 'Cranberry juice, 100% unsweetened', 'Juice', 3.5, 0, 'j');
+I('tart-cherry', 'Tart cherry juice', 'Juice', 13, 0, 'j');
+I('pomegranate', 'Pomegranate juice', 'Juice', 13, 0, 'j');
+I('watermelon-juice', 'Watermelon juice', 'Juice', 6, 0, 'j');
+I('mango-nectar', 'Mango nectar', 'Juice', 13, 0, 'p');
+I('lemonade', 'Lemonade', 'Juice', 10.5);
+I('limeade', 'Limeade', 'Juice', 11);
+I('fruit-punch', 'Fruit punch', 'Juice', 11);
+I('lemon-juice', 'Lemon juice', 'Juice', 2.5, 0, 'j');
+I('lime-juice', 'Lime juice', 'Juice', 1.7, 0, 'j');
+I('coconut-water', 'Coconut water', 'Juice', 5, 0, 'j');
+I('oj-concentrate', 'Frozen OJ concentrate, thawed', 'Juice', 34, 0, 'j');
+I('lemonade-concentrate', 'Frozen lemonade concentrate, thawed', 'Juice', 45);
+
+I('energy', 'Energy drink', 'Energy & sports', 11, 0, 'f');
+I('energy-zero', 'Sugar-free energy drink', 'Energy & sports', 0, 0, 'f');
+I('sports', 'Sports drink (e.g. Gatorade)', 'Energy & sports', 5.8);
+I('sports-zero', 'Zero-sugar sports drink', 'Energy & sports', 0);
+I('drink-mix', 'Sweetened drink mix, prepared (e.g. Kool-Aid)', 'Energy & sports', 10);
+I('drink-mix-zero', 'Sugar-free drink mix, prepared', 'Energy & sports', 0);
+
+I('sugar', 'Granulated sugar', 'Syrups & sweeteners', 100, 0, 's');
+I('simple-syrup', 'Simple syrup (1:1)', 'Syrups & sweeteners', 62);
+I('rich-syrup', 'Rich simple syrup (2:1)', 'Syrups & sweeteners', 89);
+I('coffee-syrup', 'Flavored syrup (e.g. Torani)', 'Syrups & sweeteners', 63);
+I('snowcone-syrup', 'Snow-cone / shaved-ice syrup', 'Syrups & sweeteners', 75);
+I('grenadine', 'Grenadine', 'Syrups & sweeteners', 73);
+I('honey', 'Honey', 'Syrups & sweeteners', 115);
+I('maple', 'Maple syrup', 'Syrups & sweeteners', 80);
+I('agave', 'Agave nectar', 'Syrups & sweeteners', 100);
+
+I('whole-milk', 'Whole milk', 'Milk & cream', 4.8, 0, 'c');
+I('2-milk', '2% or skim milk', 'Milk & cream', 5, 0, 'c');
+I('choc-milk', 'Chocolate milk', 'Milk & cream', 10, 0, 'c');
+I('half-half', 'Half & half', 'Milk & cream', 4, 0, 'c');
+I('heavy-cream', 'Heavy cream', 'Milk & cream', 3, 0, 'c');
+I('condensed', 'Sweetened condensed milk', 'Milk & cream', 70, 0, 'c');
+I('creamer', 'Flavored coffee creamer', 'Milk & cream', 33, 0, 'c');
+I('oat-milk', 'Oat milk', 'Milk & cream', 4, 0, 'c');
+I('almond-milk', 'Almond milk, unsweetened', 'Milk & cream', 0, 0, 'c');
+I('coconut-milk', 'Coconut milk (canned)', 'Milk & cream', 2, 0, 'c');
+I('cream-coconut', 'Cream of coconut (e.g. Coco López)', 'Milk & cream', 65, 0, 'c');
+
+I('coffee', 'Brewed coffee / cold brew', 'Coffee & tea', 0, 0, 'k');
+I('espresso', 'Espresso', 'Coffee & tea', 0, 0, 'k');
+I('bottled-frap', 'Bottled coffee drink (e.g. Frappuccino)', 'Coffee & tea', 11, 0, 'ck');
+I('sweet-tea', 'Sweet tea', 'Coffee & tea', 9);
+I('tea', 'Unsweetened tea', 'Coffee & tea', 0);
+
+I('vodka', 'Vodka', 'Spirits', 0, 40);
+I('white-rum', 'White rum', 'Spirits', 0, 40);
+I('spiced-rum', 'Spiced rum', 'Spirits', 1, 35);
+I('tequila', 'Tequila', 'Spirits', 0, 40);
+I('gin', 'Gin', 'Spirits', 0, 40);
+I('whiskey', 'Whiskey / bourbon', 'Spirits', 0, 40);
+
+I('triple-sec', 'Triple sec / orange liqueur', 'Liqueurs', 30, 25);
+I('coconut-rum', 'Coconut rum (e.g. Malibu)', 'Liqueurs', 17, 21);
+I('peach-schnapps', 'Peach schnapps', 'Liqueurs', 25, 18);
+I('blue-curacao', 'Blue curaçao', 'Liqueurs', 30, 24);
+I('amaretto', 'Amaretto', 'Liqueurs', 35, 28);
+I('coffee-liqueur', 'Coffee liqueur (e.g. Kahlúa)', 'Liqueurs', 45, 20);
+I('cinnamon-whisky', 'Cinnamon whisky (e.g. Fireball)', 'Liqueurs', 25, 33);
+I('irish-cream', 'Irish cream (e.g. Baileys)', 'Liqueurs', 25, 17, 'c');
+
+I('white-wine', 'White wine, dry', 'Wine, beer & seltzer', 1, 12);
+I('rose', 'Rosé', 'Wine, beer & seltzer', 3, 12);
+I('red-wine', 'Red wine', 'Wine, beer & seltzer', 0.6, 13.5);
+I('moscato', 'Moscato (sweet)', 'Wine, beer & seltzer', 8, 9);
+I('prosecco', 'Prosecco / sparkling wine', 'Wine, beer & seltzer', 1.2, 11, 'f');
+I('beer', 'Beer, lager', 'Wine, beer & seltzer', 0.2, 5, 'f');
+I('hard-seltzer', 'Hard seltzer', 'Wine, beer & seltzer', 0.6, 5, 'f');
+I('hard-cider', 'Hard cider', 'Wine, beer & seltzer', 8.5, 5, 'f');
+I('hard-lemonade', 'Hard lemonade (e.g. Mike’s)', 'Wine, beer & seltzer', 9, 5, 'f');
+
+I('margarita-mix', 'Margarita / sweet & sour mix', 'Cocktail mixers', 18);
+I('daiquiri-mix', 'Strawberry daiquiri mix', 'Cocktail mixers', 20);
+I('pina-colada-mix', 'Piña colada mix', 'Cocktail mixers', 30, 0, 'c');
+
+I('water', 'Water', 'Other', 0);
+I('fruit-puree', 'Fruit purée / blended fruit', 'Other', 8, 0, 'p');
+I('smoothie', 'Smoothie', 'Other', 10, 0, 'p');
+I('pickle-brine', 'Pickle brine', 'Other', 1.5);
+
+/* ---------- State ---------- */
+const STORE_KEY = 'slushcheck.v1';
+const EXAMPLE = [
+  { ing: 'cranberry-cocktail', amt: 16, unit: 'floz' },
+  { ing: 'lemon-lime-soda', amt: 16, unit: 'floz' },
+  { ing: 'lime-juice', amt: 2, unit: 'floz' },
+];
+let state = {
+  unit: 'floz',
+  rows: EXAMPLE.map(r => ({ ...r })),
+  isExample: true,
+  custom: [],
+  brands: [],
+  saved: [],
+  cap: { min: 16 * UNITS.floz.ml, max: 64 * UNITS.floz.ml },
+};
+try {
+  const raw = localStorage.getItem(STORE_KEY);
+  if (raw) state = { ...state, ...JSON.parse(raw) };
+} catch (e) { /* storage unavailable; run with defaults */ }
+function persist() {
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { /* ignore */ }
+}
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const findIng = id => LIB.find(x => x.id === id) || state.custom.find(x => x.id === id);
+const has = (ing, f) => (ing.flags || '').includes(f);
+const brandsFor = ingId => state.brands.filter(b => b.ing === ingId);
+const findBrand = id => state.brands.find(b => b.id === id);
+/* The ingredient as poured: a chosen brand's label numbers replace the typical values. */
+function effective(row) {
+  const ing = findIng(row.ing);
+  if (!ing) return null;
+  const b = row.brand && findBrand(row.brand);
+  return b && b.ing === ing.id ? { ...ing, sugar: b.sugar, abv: b.abv, brand: b.name } : ing;
+}
+
+/* ---------- Formatting ---------- */
+const fmt = (n, d = 1) => (Math.round(n * 10 ** d) / 10 ** d).toLocaleString(undefined, { maximumFractionDigits: d });
+function fmtVol(ml) {
+  if (state.unit === 'ml') return ml >= 1000 ? fmt(ml / 1000, 2) + ' L' : Math.round(ml) + ' ml';
+  const oz = ml / UNITS.floz.ml;
+  if (oz < 1.5) return fmt(ml / UNITS.tbsp.ml, 1) + ' tbsp';
+  return fmt(oz, 1) + ' oz';
+}
+const fmtSugarG = g => Math.round(g) + ' g (about ' + fmt(g / 12.5, 1) + ' tbsp)';
+const fmtTemp = c => fmt(c * 9 / 5 + 32, 1) + '°F';
+const roundAmt = (v, unit) => unit === 'ml' || unit === 'g' ? Math.max(1, Math.round(v)) : Math.max(0.25, Math.round(v * 4) / 4);
+const ingMeta = ing => (has(ing, 's') ? '100% sugar' : fmt(ing.sugar) + '% sugar') + (ing.abv ? ' · ' + fmt(ing.abv) + '% ABV' : '');
+
+/* ---------- Analysis ---------- */
+function measure(row, ing) {
+  const amt = Number(row.amt) > 0 ? Number(row.amt) : 0;
+  if (has(ing, 's')) {
+    const grams = row.unit === 'g' ? amt : amt * UNITS[row.unit].ml * SOLID_G_PER_ML;
+    return { vol: grams * SUGAR_ML_PER_G, sugar: grams * ing.sugar / 100, eth: 0 };
+  }
+  const vol = amt * UNITS[row.unit].ml;
+  return { vol, sugar: vol * ing.sugar / 100, eth: vol * ing.abv / 100 };
+}
+
+function analyze() {
+  let vol = 0, sugar = 0, eth = 0, creamy = 0, pulp = [], fizz = false, coffee = false, solid = false, allJuice = true, n = 0;
+  for (const row of state.rows) {
+    const ing = effective(row);
+    if (!ing) continue;
+    const m = measure(row, ing);
+    if (m.vol <= 0) continue;
+    n++;
+    vol += m.vol; sugar += m.sugar; eth += m.eth;
+    if (has(ing, 'c')) creamy += m.vol;
+    if (has(ing, 'p')) pulp.push(ing.name);
+    if (has(ing, 'f')) fizz = true;
+    if (has(ing, 'k')) coffee = true;
+    if (has(ing, 's')) solid = true;
+    if (!has(ing, 'j')) allJuice = false;
+  }
+  const out = { n, vol, sugar, eth, sugarPct: 0, abv: 0, fpC: 0, issues: [], level: 'empty', preset: '' };
+  if (n === 0 || vol <= 0) return out;
+
+  out.sugarPct = sugar / vol * 100;
+  out.abv = eth / vol * 100;
+  const creamyFrac = creamy / vol;
+  const waterKg = Math.max(vol - sugar * SUGAR_ML_PER_G - eth, vol * 0.2) / 1000;
+  out.fpC = -1.86 * ((sugar / SUGAR_MOLAR) + (eth * 0.789 / 46.07)) / waterKg;
+
+  let level = 'yes';
+  const worse = l => { if (l === 'no' || (l === 'maybe' && level === 'yes')) level = l; };
+  const add = (sev, title, body, action) => out.issues.push({ sev, title, body, action });
+  const T = R.targetSugar / 100;
+
+  // Sugar
+  if (out.sugarPct < R.lowSugar) {
+    const needG = Math.max(0, (T * vol - sugar) / (1 - T * SUGAR_ML_PER_G));
+    const syrupMl = Math.max(0, (T * vol - sugar) / (0.62 - T));
+    const fix = `To reach about ${R.targetSugar}%, stir in ${fmtSugarG(needG)} of sugar until it dissolves, or add ${fmtVol(syrupMl)} of simple syrup.`;
+    const action = { label: 'Add ' + fmtVol(syrupMl) + ' simple syrup', run: () => addAmount('simple-syrup', syrupMl) };
+    if (out.sugarPct < R.minSugar) {
+      worse('no');
+      add('bad', 'Not enough sugar', `At ${fmt(out.sugarPct)}% sugar this freezes into hard ice rather than slush. Ninja calls for at least ${R.minSugar}%. ${fix}`, action);
+    } else {
+      worse('maybe');
+      add('warn', 'Sugar is on the low side', `It should slush, but expect a coarse, icy texture. ${fix}`, action);
+    }
+  } else if (out.sugarPct > R.maxSugar) {
+    worse('maybe');
+    const waterMl = sugar / (R.targetSweet / 100) - vol;
+    add('warn', 'Very sweet', `At ${fmt(out.sugarPct)}% sugar it may stay soupy and take a long time to freeze. Adding ${fmtVol(waterMl)} of water brings it to about ${R.targetSweet}%.`,
+      { label: 'Add ' + fmtVol(waterMl) + ' water', run: () => addAmount('water', waterMl) });
+  } else if (out.sugarPct > R.softSugar) {
+    add('info', 'Sweet mix', 'Expect a softer slush and a longer freeze time.');
+  }
+
+  // Alcohol
+  if (out.abv > R.maxAbv) {
+    worse('no');
+    const mixMl = eth / (R.targetAbv / 100) - vol;
+    add('bad', 'Too much alcohol to freeze', `At ${fmt(out.abv)}% ABV it won't set. Ninja's limit is ${R.maxAbv}%. Add about ${fmtVol(mixMl)} of a sugary mixer such as juice, lemonade or regular soda to bring it to around ${R.targetAbv}%.`);
+  } else if (out.abv >= R.strongAbv) {
+    add('warn', 'Strong mix', `At ${fmt(out.abv)}% ABV it will be softer and slower to freeze. Under ${R.strongAbv}% freezes more firmly.`);
+  } else if (out.abv > 0 && out.abv < R.spikedMin) {
+    add('info', 'Only a splash of alcohol', `At ${fmt(out.abv, 1)}% ABV the regular Slush preset works. Spiked Slush is meant for ${R.spikedMin}% and up.`);
+  }
+
+  // Creamy
+  if (creamyFrac >= R.creamy) {
+    add('info', 'Milk or cream based', `About ${Math.round(creamyFrac * 100)}% of this mix is milk or cream, so use the ${coffee ? 'Frappé' : 'Milkshake'} preset instead of Slush.`);
+  } else if (creamyFrac > 0) {
+    add('info', 'A little milk or cream', 'Small amounts are fine in a slush. For a creamier result, use the Frappé or Milkshake preset.');
+  }
+
+  // Pulp / solids
+  if (pulp.length) {
+    worse('maybe');
+    add('warn', 'Strain out pulp and pieces', `${pulp.join(', ')} can contain pulp or fruit pieces, which can clog the dispenser. Strain it or blend until completely smooth.`);
+  }
+  if (solid) add('info', 'Dissolve the sugar first', 'Undissolved sugar sinks and doesn’t help the freeze. Stir it into a little warm liquid until clear, then chill.');
+  if (fizz) add('info', 'Carbonated', 'Soda foams as it chills. Pour slowly and leave some room below the max line.');
+
+  // Volume
+  const { min, max } = state.cap;
+  if (vol > max * 1.001) {
+    worse('maybe');
+    add('bad', 'Over the max fill line', `This batch is ${fmtVol(vol)} and the max is ${fmtVol(max)}. Remove ${fmtVol(vol - max)} or split it into two batches.`,
+      { label: 'Scale to ' + fmtVol(max), run: () => scaleTo(max) });
+  } else if (vol < min * 0.999) {
+    worse('maybe');
+    add('warn', 'Below the min fill line', `This batch is ${fmtVol(vol)} and the min is ${fmtVol(min)}. The machine needs at least that much to churn properly.`,
+      { label: 'Scale to ' + fmtVol(min), run: () => scaleTo(min) });
+  }
+
+  out.preset = creamyFrac >= R.creamy ? (coffee ? 'Frappé' : 'Milkshake')
+    : out.abv >= R.spikedMin ? 'Spiked Slush'
+    : allJuice ? 'Frozen Juice'
+    : 'Slush';
+  if (out.preset === 'Frozen Juice') add('info', '100% juice', 'The Frozen Juice preset is designed for straight juice.');
+  out.level = level;
+  return out;
+}
+
+/* ---------- Recipe edits ---------- */
+function prefUnitFor(ing) {
+  if (has(ing, 's')) return state.unit === 'ml' ? 'g' : 'tbsp';
+  return state.unit;
+}
+function fromMl(ml, unit) { return ml / UNITS[unit].ml; }
+function addAmount(id, ml) {
+  const existing = state.rows.find(r => r.ing === id && LIQUID_UNITS.includes(r.unit));
+  if (existing) {
+    existing.amt = roundAmt(Number(existing.amt || 0) + fromMl(ml, existing.unit), existing.unit);
+  } else {
+    const unit = ml < 45 && state.unit === 'floz' ? 'tbsp' : state.unit;
+    state.rows.push({ ing: id, amt: roundAmt(fromMl(ml, unit), unit), unit });
+  }
+  edited();
+  renderRows();
+  toast('Added ' + findIng(id).name.toLowerCase());
+}
+function scaleTo(targetMl) {
+  const a = analyze();
+  if (!a.vol) return;
+  const f = targetMl / a.vol;
+  state.rows.forEach(r => { r.amt = Math.round(Number(r.amt || 0) * f * 100) / 100; });
+  edited();
+  renderRows();
+  toast('Scaled to ' + fmtVol(targetMl));
+}
+function edited() { state.isExample = false; persist(); renderAnalysis(); }
+
+/* ---------- Rendering ---------- */
+const SCALE_MAX = 30;
+const ZONES = [[0, R.minSugar, 'z-bad'], [R.minSugar, R.lowSugar, 'z-warn'], [R.lowSugar, R.softSugar, 'z-good'], [R.softSugar, R.maxSugar, 'z-soft'], [R.maxSugar, SCALE_MAX, 'z-warn']];
+$('bar').innerHTML = ZONES.map(([a, b, c]) => `<i class="${c}" style="width:${(b - a) / SCALE_MAX * 100}%"></i>`).join('');
+$('ticks').innerHTML = [0, R.minSugar, R.lowSugar, R.softSugar, R.maxSugar, SCALE_MAX]
+  .map(v => `<span style="left:${v / SCALE_MAX * 100}%">${v}${v === SCALE_MAX ? '%+' : ''}</span>`).join('');
+
+const TITLES = { yes: 'Will slush', maybe: 'Might slush', no: 'Won’t slush', empty: 'Add ingredients' };
+const PILL = { yes: 'Slush', maybe: 'Iffy', no: 'No slush', empty: 'Empty' };
+
+function renderAnalysis() {
+  const a = analyze();
+  const v = $('verdict');
+  v.className = 'verdict lvl-' + a.level;
+  $('pill').className = 'pill lvl-' + a.level;
+  $('pill-text').textContent = a.level === 'empty' ? PILL.empty : PILL[a.level] + ' · ' + fmt(a.sugarPct) + '%';
+  $('v-title').textContent = TITLES[a.level];
+  $('v-sub').innerHTML = a.level === 'empty' ? 'Build your mix below to see if it will freeze.'
+    : (a.level === 'no' ? 'After fixing, use the ' : 'Use the ') + `<span class="preset">${a.preset}</span> preset`;
+  $('s-sugar').textContent = fmt(a.sugarPct) + '%';
+  $('s-abv').textContent = fmt(a.abv) + '%';
+  $('s-fp').textContent = fmtTemp(a.fpC);
+  $('s-fp-sub').textContent = fmt(a.fpC, 1) + '°C, estimate';
+  $('s-vol').textContent = fmtVol(a.vol);
+  $('s-vol-sub').textContent = `fill lines ${fmtVol(state.cap.min)}–${fmtVol(state.cap.max)}`;
+  $('marker').style.left = Math.min(a.sugarPct, SCALE_MAX) / SCALE_MAX * 100 + '%';
+  $('marker').hidden = a.level === 'empty';
+  $('g-read').textContent = a.level === 'empty' ? '' : fmt(a.sugarPct) + '% sugar';
+
+  const ul = $('issues');
+  ul.innerHTML = '';
+  const order = { bad: 0, warn: 1, info: 2 };
+  a.issues.sort((x, y) => order[x.sev] - order[y.sev]).forEach(it => {
+    const li = document.createElement('li');
+    li.className = 'issue';
+    li.innerHTML = `<span class="chip ${it.sev}">${it.sev === 'bad' ? 'Fix' : it.sev === 'warn' ? 'Check' : 'Tip'}</span><strong>${esc(it.title)}</strong><p>${esc(it.body)}</p>`;
+    if (it.action) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'btn small act'; b.textContent = it.action.label;
+      b.addEventListener('click', it.action.run);
+      li.appendChild(b);
+    }
+    ul.appendChild(li);
+  });
+  ul.hidden = a.issues.length === 0;
+}
+
+function brandForm(row, ing, brand, li) {
+  const form = li.querySelector('.brand-form');
+  const showAbv = ing.abv > 0 || (brand && brand.abv > 0);
+  form.innerHTML = `
+    <label>Brand <input class="field" data-f="name" maxlength="40" autocomplete="off" placeholder="e.g. Tropicana" value="${brand ? esc(brand.name) : ''}"></label>
+    <div class="grid3">
+      <label>Serving size <input class="field num" data-f="serv" inputmode="decimal" placeholder="8" value="${brand ? brand.serv : ''}"></label>
+      <label>Unit <select class="field" data-f="servUnit">${['floz', 'ml', 'cup', 'tbsp'].map(u => `<option value="${u}"${u === (brand ? brand.servUnit : state.unit) ? ' selected' : ''}>${UNITS[u].label}</option>`).join('')}</select></label>
+      <label>Sugars (g) <input class="field num" data-f="sugarG" inputmode="decimal" placeholder="22" value="${brand ? brand.sugarG : ''}"></label>
+    </div>
+    ${showAbv ? `<label>Alcohol (% ABV) <input class="field num" data-f="abv" inputmode="decimal" value="${brand ? brand.abv : ing.abv}"></label>` : ''}
+    <p class="hint">From the label: serving size and Total Sugars per serving.</p>
+    <p class="form-err" hidden></p>
+    <div class="form-btns">
+      <button type="button" class="btn small ghost" data-act="cancel">Cancel</button>
+      ${brand ? '<button type="button" class="btn small ghost danger" data-act="delete">Delete brand</button>' : ''}
+      <button type="button" class="btn small primary" data-act="save">Save brand</button>
+    </div>`;
+  form.hidden = false;
+  const f = k => form.querySelector(`[data-f="${k}"]`);
+  const num = k => f(k) ? parseFloat(f(k).value.replace(',', '.')) : NaN;
+  f('name').focus();
+  form.querySelector('[data-act="cancel"]').addEventListener('click', () => renderRows());
+  const del = form.querySelector('[data-act="delete"]');
+  if (del) {
+    let armed = false;
+    del.addEventListener('click', () => {
+      if (!armed) { armed = true; del.textContent = 'Tap to confirm'; setTimeout(() => { armed = false; del.textContent = 'Delete brand'; }, 3000); return; }
+      state.brands = state.brands.filter(b => b.id !== brand.id);
+      state.rows.forEach(r => { if (r.brand === brand.id) delete r.brand; });
+      edited(); renderRows(); renderSaved();
+      toast('Deleted ' + brand.name);
+    });
+  }
+  form.querySelector('[data-act="save"]').addEventListener('click', () => {
+    const err = form.querySelector('.form-err');
+    const fail = m => { err.textContent = m; err.hidden = false; };
+    const name = f('name').value.trim();
+    const serv = num('serv'), sugarG = num('sugarG'), abv = f('abv') ? (num('abv') || 0) : 0;
+    if (!name) return fail('Enter the brand name.');
+    if (!(serv > 0)) return fail('Enter the serving size from the label.');
+    if (!(sugarG >= 0)) return fail('Enter the grams of sugar per serving (0 is fine).');
+    if (abv < 0 || abv > 95) return fail('Alcohol should be between 0 and 95%.');
+    const servUnit = f('servUnit').value;
+    const b = brand || { id: 'b-' + Date.now(), ing: ing.id };
+    Object.assign(b, { name, serv, servUnit, sugarG, abv, sugar: Math.round(sugarG / (serv * UNITS[servUnit].ml) * 1000) / 10 });
+    if (!brand) state.brands.push(b);
+    row.brand = b.id;
+    edited(); renderRows(); renderSaved();
+    toast((brand ? 'Updated ' : 'Saved ') + name);
+  });
+}
+
+function renderRows() {
+  state.rows = state.rows.filter(r => findIng(r.ing));
+  const ul = $('rows');
+  ul.innerHTML = '';
+  state.rows.forEach((row, i) => {
+    const base = findIng(row.ing);
+    const ing = effective(row);
+    const brand = ing.brand ? findBrand(row.brand) : null;
+    const units = has(ing, 's') ? SOLID_UNITS : LIQUID_UNITS;
+    const brandOpts = has(ing, 's') ? '' : `
+      <label class="row-brand"><span class="label">Brand</span>
+      <select class="field brand" id="brand-${i}" aria-label="Brand of ${esc(base.name)}">
+        <option value="">Typical brand</option>
+        ${brandsFor(base.id).map(b => `<option value="${b.id}"${brand && b.id === brand.id ? ' selected' : ''}>${esc(b.name)}</option>`).join('')}
+        <option value="__new">+ Add brand…</option>
+        ${brand ? `<option value="__edit">Edit ${esc(brand.name)}…</option>` : ''}
+      </select></label>`;
+    const li = document.createElement('li');
+    li.className = 'row';
+    li.innerHTML = `
+      <div style="min-width:0"><div class="row-name">${esc(base.name)}</div><div class="row-meta">${brand ? esc(brand.name) + ' · ' : ''}${ingMeta(ing)}</div></div>
+      <button type="button" class="x" aria-label="Remove ${esc(base.name)}">×</button>
+      <div class="row-amt" style="grid-column:1 / -1">
+        <span class="label">Amount</span>
+        <input class="field num" id="amt-${i}" type="text" inputmode="decimal" aria-label="Amount of ${esc(base.name)}" value="${row.amt ?? ''}">
+        <select class="field" id="unit-${i}" aria-label="Unit">${units.map(u => `<option value="${u}"${u === row.unit ? ' selected' : ''}>${UNITS[u].label}</option>`).join('')}</select>
+      </div>
+      ${brandOpts}
+      <div class="form brand-form" hidden></div>`;
+    const brandSel = li.querySelector('select.brand');
+    if (brandSel) brandSel.addEventListener('change', e => {
+      const v = e.target.value;
+      if (v === '__new' || v === '__edit') {
+        e.target.value = brand ? brand.id : '';
+        return brandForm(row, base, v === '__edit' ? brand : null, li);
+      }
+      if (v) row.brand = v; else delete row.brand;
+      edited(); renderRows();
+    });
+    li.querySelector('input').addEventListener('input', e => {
+      const v = parseFloat(e.target.value.replace(',', '.'));
+      row.amt = isNaN(v) ? 0 : v;
+      edited();
+    });
+    li.querySelector('select').addEventListener('change', e => {
+      const oldUnit = row.unit, newUnit = e.target.value;
+      if (UNITS[oldUnit].ml && UNITS[newUnit].ml) row.amt = roundAmt(row.amt * UNITS[oldUnit].ml / UNITS[newUnit].ml, newUnit);
+      else if (oldUnit === 'g') row.amt = roundAmt(row.amt / SOLID_G_PER_ML / UNITS[newUnit].ml, newUnit);
+      else row.amt = roundAmt(row.amt * UNITS[oldUnit].ml * SOLID_G_PER_ML, 'g');
+      row.unit = newUnit;
+      li.querySelector('input').value = row.amt;
+      edited();
+    });
+    li.querySelector('.x').addEventListener('click', () => {
+      state.rows.splice(i, 1);
+      edited();
+      renderRows();
+    });
+    ul.appendChild(li);
+  });
+  $('empty').hidden = state.rows.length > 0;
+  $('example-note').hidden = !state.isExample;
+  renderAnalysis();
+}
+
+function renderUnits() {
+  $('u-oz').setAttribute('aria-pressed', state.unit === 'floz');
+  $('u-ml').setAttribute('aria-pressed', state.unit === 'ml');
+  const conv = ml => state.unit === 'ml' ? Math.round(ml) : fmt(ml / UNITS.floz.ml, 1);
+  $('cap-min').value = conv(state.cap.min);
+  $('cap-max').value = conv(state.cap.max);
+  $('cap-min').setAttribute('aria-label', 'Min fill in ' + UNITS[state.unit].label);
+}
+
+function renderSaved() {
+  const ul = $('saved');
+  ul.innerHTML = '';
+  $('saved-empty').hidden = state.saved.length > 0;
+  state.saved.forEach((s, i) => {
+    const li = document.createElement('li');
+    const prev = state.rows; state.rows = s.rows; const a = analyze(); state.rows = prev;
+    li.innerHTML = `<span class="nm">${esc(s.name)}<span class="meta">${fmt(a.sugarPct)}% sugar${a.abv ? ' · ' + fmt(a.abv) + '% ABV' : ''} · ${TITLES[a.level].toLowerCase()}</span></span>
+      <button type="button" class="btn small">Load</button><button type="button" class="btn small ghost danger">Delete</button>`;
+    const [load, del] = li.querySelectorAll('button');
+    load.addEventListener('click', () => {
+      state.rows = s.rows.map(r => ({ ...r }));
+      state.isExample = false;
+      persist(); renderRows();
+      $('save-name').value = s.name;
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      toast('Loaded ' + s.name);
+    });
+    let armed = false;
+    del.addEventListener('click', () => {
+      if (!armed) { armed = true; del.textContent = 'Tap to confirm'; setTimeout(() => { armed = false; del.textContent = 'Delete'; }, 3000); return; }
+      state.saved.splice(i, 1); persist(); renderSaved(); toast('Deleted ' + s.name);
+    });
+    ul.appendChild(li);
+  });
+}
+
+let toastTimer;
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = msg; t.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.hidden = true; }, 2200);
+}
+
+/* ---------- Picker ---------- */
+const sheet = $('sheet');
+let pickCat = 'All', mode = 'list';
+function openPicker() {
+  mode = 'list'; pickCat = 'All'; $('search').value = '';
+  renderPicker();
+  if (sheet.showModal) sheet.showModal(); else sheet.setAttribute('open', '');
+}
+function closePicker() { if (sheet.close) sheet.close(); else sheet.removeAttribute('open'); }
+$('sheet-close').addEventListener('click', closePicker);
+sheet.addEventListener('click', e => { if (e.target === sheet) closePicker(); });
+$('search').addEventListener('input', renderPicker);
+
+function defaultMl(ing) {
+  const oz = ['Spirits'].includes(ing.cat) ? 4
+    : ['Liqueurs', 'Syrups & sweeteners'].includes(ing.cat) || ['lemon-juice', 'lime-juice'].includes(ing.id) ? 2
+    : ing.sugar > 40 ? 2 : 8;
+  return oz * UNITS.floz.ml;
+}
+function pick(ing) {
+  if (state.isExample) { state.rows = []; state.isExample = false; }
+  if (has(ing, 's')) {
+    const unit = prefUnitFor(ing);
+    state.rows.push({ ing: ing.id, amt: unit === 'g' ? 50 : 4, unit });
+  } else {
+    const ml = defaultMl(ing);
+    const unit = state.unit;
+    state.rows.push({ ing: ing.id, amt: roundAmt(fromMl(ml, unit), unit), unit });
+  }
+  persist();
+  closePicker();
+  renderRows();
+  const inputs = $('rows').querySelectorAll('input');
+  const last = inputs[inputs.length - 1];
+  if (last) { last.focus(); last.select(); }
+}
+
+function renderPicker() {
+  const catsEl = $('cats'), list = $('list');
+  $('picker-head').hidden = mode !== 'list';
+  catsEl.hidden = mode !== 'list';
+  $('sheet-title').textContent = mode === 'list' ? 'Add ingredient' : 'Your own ingredient';
+  if (mode === 'form') return renderForm();
+
+  const allCats = ['All', 'Mine', ...CATS];
+  catsEl.innerHTML = allCats.map(c => `<button type="button" aria-pressed="${c === pickCat}" data-cat="${esc(c)}">${c === 'Mine' ? 'My ingredients' : esc(c)}</button>`).join('');
+  catsEl.querySelectorAll('button').forEach(b => b.addEventListener('click', () => { pickCat = b.dataset.cat; renderPicker(); }));
+
+  const q = $('search').value.trim().toLowerCase();
+  const custom = state.custom.map(c => ({ ...c, cat: 'Mine' }));
+  let items = [...custom, ...LIB].filter(x => (pickCat === 'All' || x.cat === pickCat) && (!q || x.name.toLowerCase().includes(q)));
+  list.innerHTML = '';
+  const addBtn = document.createElement('button');
+  addBtn.type = 'button'; addBtn.className = 'btn add-btn'; addBtn.style.margin = '8px 0';
+  addBtn.textContent = '+ Add your own from a label';
+  addBtn.addEventListener('click', () => { mode = 'form'; renderPicker(); });
+
+  let lastCat = null;
+  items.forEach(ing => {
+    if (ing.cat !== lastCat && pickCat === 'All') {
+      const h = document.createElement('div');
+      h.className = 'label cat-h'; h.textContent = ing.cat === 'Mine' ? 'My ingredients' : ing.cat;
+      list.appendChild(h); lastCat = ing.cat;
+    }
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'ing';
+    b.innerHTML = `<span>${esc(ing.name)}</span><span class="meta">${ingMeta(ing)}</span>`;
+    b.addEventListener('click', () => pick(findIng(ing.id)));
+    if (ing.cat === 'Mine') {
+      const wrap = document.createElement('div');
+      wrap.className = 'mine';
+      const del = document.createElement('button');
+      del.type = 'button'; del.className = 'x'; del.setAttribute('aria-label', 'Delete ' + ing.name); del.textContent = '×';
+      let armed = false;
+      del.addEventListener('click', () => {
+        if (!armed) { armed = true; del.textContent = '?'; del.title = 'Tap again to delete'; toast('Tap again to delete ' + ing.name); setTimeout(() => { armed = false; del.textContent = '×'; }, 3000); return; }
+        state.custom = state.custom.filter(c => c.id !== ing.id);
+        persist(); renderPicker(); renderRows();
+      });
+      wrap.append(b, del);
+      list.appendChild(wrap);
+    } else list.appendChild(b);
+  });
+  if (!items.length) {
+    const p = document.createElement('p');
+    p.className = 'empty'; p.style.margin = '8px 0';
+    p.textContent = pickCat === 'Mine' && !q ? 'You haven’t added any ingredients yet.' : 'Nothing matches. Add it from its nutrition label.';
+    list.appendChild(p);
+  }
+  list.appendChild(addBtn);
+}
+
+function renderForm() {
+  const list = $('list');
+  const q = $('search').value.trim();
+  list.innerHTML = `
+    <form class="form" id="cform" novalidate>
+      <p class="hint">Copy the numbers from the drink's nutrition label.</p>
+      <label>Name <input class="field" id="c-name" maxlength="60" value="${esc(q)}" autocomplete="off"></label>
+      <div class="grid2">
+        <label>Serving size <input class="field num" id="c-serv" inputmode="decimal" placeholder="12"></label>
+        <label>Serving unit <select class="field" id="c-serv-unit">
+          <option value="floz"${state.unit === 'floz' ? ' selected' : ''}>fl oz</option>
+          <option value="ml"${state.unit === 'ml' ? ' selected' : ''}>ml</option>
+          <option value="cup">cup</option><option value="tbsp">tbsp</option>
+        </select></label>
+      </div>
+      <div class="grid2">
+        <label>Sugars per serving (g) <input class="field num" id="c-sugar" inputmode="decimal" placeholder="39"></label>
+        <label>Alcohol (% ABV) <input class="field num" id="c-abv" inputmode="decimal" placeholder="0"></label>
+      </div>
+      <p class="hint">Use "Total Sugars". If the label lists "Total Carbohydrate" only, use that.</p>
+      <div class="checks">
+        <label><input type="checkbox" id="c-f"> Carbonated</label>
+        <label><input type="checkbox" id="c-c"> Milk or cream</label>
+        <label><input type="checkbox" id="c-p"> Has pulp or pieces</label>
+        <label><input type="checkbox" id="c-j"> 100% juice</label>
+      </div>
+      <p class="form-err" id="c-err" hidden></p>
+      <div class="grid2">
+        <button type="button" class="btn" id="c-back">Back</button>
+        <button type="submit" class="btn primary">Save and add</button>
+      </div>
+    </form>`;
+  $('c-back').addEventListener('click', () => { mode = 'list'; renderPicker(); });
+  $('cform').addEventListener('submit', e => {
+    e.preventDefault();
+    const num = id => parseFloat($(id).value.replace(',', '.'));
+    const name = $('c-name').value.trim();
+    const serv = num('c-serv'), sugarG = num('c-sugar') || 0, abv = num('c-abv') || 0;
+    const err = $('c-err');
+    const fail = m => { err.textContent = m; err.hidden = false; };
+    if (!name) return fail('Give the ingredient a name.');
+    if (!(serv > 0)) return fail('Enter the serving size from the label.');
+    if (sugarG < 0 || abv < 0 || abv > 95) return fail('Check the sugar and alcohol numbers.');
+    const servMl = serv * UNITS[$('c-serv-unit').value].ml;
+    const flags = ['f', 'c', 'p', 'j'].filter(f => $('c-' + f).checked).join('');
+    const ing = { id: 'c-' + Date.now(), name, cat: 'Mine', sugar: Math.round(sugarG / servMl * 1000) / 10, abv, flags };
+    state.custom.push(ing);
+    persist();
+    pick(ing);
+    toast('Saved ' + name + ' to My ingredients');
+  });
+  setTimeout(() => $('c-name').focus(), 50);
+}
+
+/* ---------- Wire up ---------- */
+$('add').addEventListener('click', openPicker);
+$('clear').addEventListener('click', () => {
+  if (!state.rows.length) return;
+  state.rows = []; state.isExample = false;
+  persist(); renderRows();
+  $('save-name').value = '';
+  toast('Cleared');
+});
+document.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => {
+  state.unit = b.dataset.unit;
+  persist(); renderUnits(); renderRows();
+}));
+$('save-form').addEventListener('submit', e => {
+  e.preventDefault();
+  const name = $('save-name').value.trim();
+  if (!state.rows.length) return toast('Add some ingredients first');
+  if (!name) { $('save-name').focus(); return toast('Name the mix to save it'); }
+  const rows = state.rows.map(r => ({ ...r }));
+  const i = state.saved.findIndex(s => s.name.toLowerCase() === name.toLowerCase());
+  if (i >= 0) state.saved[i].rows = rows; else state.saved.unshift({ name, rows });
+  persist(); renderSaved();
+  toast(i >= 0 ? 'Updated ' + name : 'Saved ' + name);
+});
+['cap-min', 'cap-max'].forEach(id => $(id).addEventListener('change', e => {
+  const v = parseFloat(e.target.value.replace(',', '.'));
+  if (v > 0) state.cap[id === 'cap-min' ? 'min' : 'max'] = v * (state.unit === 'ml' ? 1 : UNITS.floz.ml);
+  if (state.cap.min > state.cap.max) [state.cap.min, state.cap.max] = [state.cap.max, state.cap.min];
+  persist(); renderUnits(); renderAnalysis();
+}));
+
+renderUnits();
+renderRows();
+renderSaved();
+
+/* Offline support when installed as an app */
+try {
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
+} catch (e) { /* not available here */ }
+})();
+</script>
+</body>
+</html>
