@@ -10,9 +10,20 @@ Scan the code with your phone's camera to open the app.
 
 ## Install on your phone
 
+Once installed, it gets its own icon, opens full screen, and works offline.
+
+**Android**
+
 1. Open the link above in Chrome or Samsung Internet.
 2. Tap **⋮** and choose **Install app** or **Add to home screen**.
-3. It gets its own icon, opens full screen, and works offline.
+
+**iPhone**
+
+1. Open the link above in Safari.
+2. Tap the **Share** button (the square with an arrow pointing up).
+3. Scroll down and tap **Add to Home Screen**, then **Add**.
+
+On iPhone, use the app from its home screen icon. Safari clears a website's saved data after about a week without a visit, so mixes saved in the browser can disappear. Mixes saved in the home screen app stay put. The two also keep separate lists, so mixes saved in Safari won't appear in the home screen app.
 
 ## What it does
 
