@@ -215,6 +215,12 @@ dialog.sheet::backdrop { background: rgb(5 10 20 / 0.55); }
 .sheet-inner { display: flex; flex-direction: column; max-height: 88vh; max-height: 88dvh; }
 .sheet-head { padding: 14px 16px 10px; display: flex; flex-direction: column; gap: 10px; border-bottom: 1px solid var(--line); }
 .sheet-title { display: flex; align-items: center; justify-content: space-between; }
+.title-group { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.plus {
+  width: 34px; height: 34px; border-radius: 50%; border: 0; flex: none; cursor: pointer;
+  background: var(--accent); color: var(--accent-ink); font-size: 1.4rem; font-weight: 700; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+}
 .cats { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
 .cats button {
   flex: none; border: 1px solid var(--line); background: var(--bg); border-radius: 999px; padding: 4px 11px; font-size: 0.82rem; cursor: pointer; white-space: nowrap;
@@ -335,7 +341,10 @@ footer { font-size: 0.78rem; color: var(--muted); max-width: 65ch; }
   <div class="sheet-inner">
     <div class="sheet-head">
       <div class="sheet-title">
-        <h2 id="sheet-title">Add ingredient</h2>
+        <div class="title-group">
+          <h2 id="sheet-title">Add ingredient</h2>
+          <button type="button" class="plus" id="sheet-add" aria-label="Add your own ingredient from a label" title="Add your own from a label">+</button>
+        </div>
         <button type="button" class="x" id="sheet-close" aria-label="Close">×</button>
       </div>
       <div id="picker-head">
@@ -349,13 +358,14 @@ footer { font-size: 0.78rem; color: var(--muted); max-width: 65ch; }
 
 <div class="toast" id="toast" hidden></div>
 <input type="file" accept="image/*" id="scan-input" hidden>
+<input type="file" accept="image/*" capture="environment" id="scan-camera" hidden>
 
 <script>
 (() => {
 'use strict';
 
 /* Keep in step with VERSION in sw.js. */
-const APP_VERSION = 4;
+const APP_VERSION = 5;
 
 /* ---------- Units & physical constants ---------- */
 const UNITS = {
@@ -814,9 +824,18 @@ function loadTesseract() {
   return tessLoading;
 }
 
-function pickPhoto() {
+/* Two buttons for scanning: open the camera, or pick a photo you already took. */
+const SCAN_BUTTONS = `<div class="scan-row">
+  <button type="button" class="btn small primary" data-scan="camera">Take photo of label</button>
+  <button type="button" class="btn small" data-scan="gallery">Choose photo</button>
+</div>`;
+function wireScan(root, statusEl, apply) {
+  root.querySelectorAll('[data-scan]').forEach(b => b.addEventListener('click', () => runScan(statusEl, apply, b.dataset.scan)));
+}
+
+function pickPhoto(source) {
   return new Promise(resolve => {
-    const inp = $('scan-input');
+    const inp = $(source === 'camera' ? 'scan-camera' : 'scan-input');
     inp.value = '';
     inp.onchange = () => resolve(inp.files[0] || null);
     inp.click();
@@ -849,9 +868,9 @@ async function prepImage(file) {
   return c;
 }
 
-async function runScan(statusEl, apply) {
+async function runScan(statusEl, apply, source) {
   const say = (msg, bad) => { statusEl.hidden = false; statusEl.textContent = msg; statusEl.classList.toggle('bad', !!bad); };
-  const file = await pickPhoto();
+  const file = await pickPhoto(source);
   if (!file) return;
   let worker;
   try {
@@ -880,11 +899,13 @@ async function runScan(statusEl, apply) {
   }
 }
 
-function brandForm(row, ing, brand, li) {
-  const form = li.querySelector('.brand-form');
+/* Brand editor, shared by recipe rows and the add-ingredient sheet.
+   on.save(brand) runs after the brand is stored; on.cancel() and on.deleted() are optional. */
+function brandEditor(form, ing, brand, on) {
   const showAbv = ing.abv > 0 || (brand && brand.abv > 0);
   form.innerHTML = `
-    <div class="scan-row"><button type="button" class="btn small" data-act="scan">Scan nutrition label</button><span class="hint">or type the numbers below</span></div>
+    ${SCAN_BUTTONS}
+    <p class="hint">Scan the nutrition label, or type the numbers below.</p>
     <p class="scan-status" hidden></p>
     <label>Brand <input class="field" data-f="name" maxlength="40" autocomplete="off" placeholder="e.g. Tropicana" value="${brand ? esc(brand.name) : ''}"></label>
     <div class="grid3">
@@ -896,20 +917,20 @@ function brandForm(row, ing, brand, li) {
     <p class="hint">From the label: serving size and Total Sugars per serving.</p>
     <p class="form-err" hidden></p>
     <div class="form-btns">
-      <button type="button" class="btn small ghost" data-act="cancel">Cancel</button>
+      <button type="button" class="btn small ghost" data-act="cancel">${on.cancelLabel || 'Cancel'}</button>
       ${brand ? '<button type="button" class="btn small ghost danger" data-act="delete">Delete brand</button>' : ''}
-      <button type="button" class="btn small primary" data-act="save">Save brand</button>
+      <button type="button" class="btn small primary" data-act="save">${on.saveLabel || 'Save brand'}</button>
     </div>`;
   form.hidden = false;
   const f = k => form.querySelector(`[data-f="${k}"]`);
   const num = k => f(k) ? parseFloat(f(k).value.replace(',', '.')) : NaN;
   f('name').focus();
-  form.querySelector('[data-act="scan"]').addEventListener('click', () => runScan(form.querySelector('.scan-status'), r => {
+  wireScan(form, form.querySelector('.scan-status'), r => {
     if (r.serv != null) { f('serv').value = r.serv; f('servUnit').value = r.servUnit; }
     if (r.sugarG != null) f('sugarG').value = r.sugarG;
     if (r.abv != null && f('abv')) f('abv').value = r.abv;
-  }));
-  form.querySelector('[data-act="cancel"]').addEventListener('click', () => renderRows());
+  });
+  form.querySelector('[data-act="cancel"]').addEventListener('click', () => on.cancel && on.cancel());
   const del = form.querySelector('[data-act="delete"]');
   if (del) {
     let armed = false;
@@ -919,6 +940,7 @@ function brandForm(row, ing, brand, li) {
       state.rows.forEach(r => { if (r.brand === brand.id) delete r.brand; });
       edited(); renderRows(); renderSaved();
       toast('Deleted ' + brand.name);
+      if (on.deleted) on.deleted();
     });
   }
   form.querySelector('[data-act="save"]').addEventListener('click', () => {
@@ -934,9 +956,16 @@ function brandForm(row, ing, brand, li) {
     const b = brand || { id: 'b-' + Date.now(), ing: ing.id };
     Object.assign(b, { name, serv, servUnit, sugarG, abv, sugar: Math.round(sugarG / (serv * UNITS[servUnit].ml) * 1000) / 10 });
     if (!brand) state.brands.push(b);
-    row.brand = b.id;
-    edited(); renderRows(); renderSaved();
+    persist();
     toast((brand ? 'Updated ' : 'Saved ') + name);
+    on.save(b);
+  });
+}
+
+function brandForm(row, ing, brand, li) {
+  brandEditor(li.querySelector('.brand-form'), ing, brand, {
+    save: b => { row.brand = b.id; edited(); renderRows(); renderSaved(); },
+    cancel: () => renderRows(),
   });
 }
 
@@ -1051,7 +1080,7 @@ function toast(msg) {
 
 /* ---------- Picker ---------- */
 const sheet = $('sheet');
-let pickCat = 'All', mode = 'list';
+let pickCat = 'All', mode = 'list', pickIng = null;
 function openPicker() {
   mode = 'list'; pickCat = 'All'; $('search').value = '';
   renderPicker();
@@ -1068,7 +1097,7 @@ function defaultMl(ing) {
     : ing.sugar > 40 ? 2 : 8;
   return oz * UNITS.floz.ml;
 }
-function pick(ing) {
+function pick(ing, brandId) {
   if (state.isExample) { state.rows = []; state.isExample = false; }
   if (has(ing, 's')) {
     const unit = prefUnitFor(ing);
@@ -1076,7 +1105,9 @@ function pick(ing) {
   } else {
     const ml = defaultMl(ing);
     const unit = state.unit;
-    state.rows.push({ ing: ing.id, amt: roundAmt(fromMl(ml, unit), unit), unit });
+    const row = { ing: ing.id, amt: roundAmt(fromMl(ml, unit), unit), unit };
+    if (brandId) row.brand = brandId;
+    state.rows.push(row);
   }
   persist();
   closePicker();
@@ -1090,8 +1121,18 @@ function renderPicker() {
   const catsEl = $('cats'), list = $('list');
   $('picker-head').hidden = mode !== 'list';
   catsEl.hidden = mode !== 'list';
-  $('sheet-title').textContent = mode === 'list' ? 'Add ingredient' : 'Your own ingredient';
+  $('sheet-add').hidden = mode !== 'list';
+  $('sheet-title').textContent = { list: 'Add ingredient', form: 'Your own ingredient', brand: 'Which brand?', newbrand: 'New brand' }[mode];
   if (mode === 'form') return renderForm();
+  if (mode === 'brand') return renderBrandStep();
+  if (mode === 'newbrand') {
+    list.innerHTML = `<p class="label cat-h">${esc(pickIng.name)}</p><div class="form brand-form"></div>`;
+    return brandEditor(list.querySelector('.form'), pickIng, null, {
+      saveLabel: 'Save and add', cancelLabel: 'Back',
+      save: b => pick(pickIng, b.id),
+      cancel: () => { mode = 'brand'; renderPicker(); },
+    });
+  }
 
   const allCats = ['All', 'Mine', ...CATS];
   catsEl.innerHTML = allCats.map(c => `<button type="button" aria-pressed="${c === pickCat}" data-cat="${esc(c)}">${c === 'Mine' ? 'My ingredients' : esc(c)}</button>`).join('');
@@ -1101,10 +1142,6 @@ function renderPicker() {
   const custom = state.custom.map(c => ({ ...c, cat: 'Mine' }));
   let items = [...custom, ...LIB].filter(x => (pickCat === 'All' || x.cat === pickCat) && (!q || x.name.toLowerCase().includes(q)));
   list.innerHTML = '';
-  const addBtn = document.createElement('button');
-  addBtn.type = 'button'; addBtn.className = 'btn add-btn'; addBtn.style.margin = '8px 0';
-  addBtn.textContent = '+ Add your own from a label';
-  addBtn.addEventListener('click', () => { mode = 'form'; renderPicker(); });
 
   let lastCat = null;
   items.forEach(ing => {
@@ -1116,7 +1153,11 @@ function renderPicker() {
     const b = document.createElement('button');
     b.type = 'button'; b.className = 'ing';
     b.innerHTML = `<span>${esc(ing.name)}</span><span class="meta">${ingMeta(ing)}</span>`;
-    b.addEventListener('click', () => pick(findIng(ing.id)));
+    b.addEventListener('click', () => {
+      const chosen = findIng(ing.id);
+      if (has(chosen, 's')) return pick(chosen);
+      pickIng = chosen; mode = 'brand'; renderPicker();
+    });
     if (ing.cat === 'Mine') {
       const wrap = document.createElement('div');
       wrap.className = 'mine';
@@ -1135,10 +1176,34 @@ function renderPicker() {
   if (!items.length) {
     const p = document.createElement('p');
     p.className = 'empty'; p.style.margin = '8px 0';
-    p.textContent = pickCat === 'Mine' && !q ? 'You haven’t added any ingredients yet.' : 'Nothing matches. Add it from its nutrition label.';
+    p.textContent = pickCat === 'Mine' && !q
+      ? 'You haven’t added any ingredients yet. Tap + at the top to add one from its label.'
+      : 'Nothing matches. Tap + at the top to add it from its nutrition label.';
     list.appendChild(p);
   }
-  list.appendChild(addBtn);
+}
+$('sheet-add').addEventListener('click', () => { mode = 'form'; renderPicker(); });
+
+function renderBrandStep() {
+  const list = $('list');
+  const ing = pickIng;
+  list.innerHTML = `<p class="label cat-h">${esc(ing.name)}</p>`;
+  const option = (label, meta, run) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'ing';
+    b.innerHTML = `<span>${label}</span><span class="meta">${meta}</span>`;
+    b.addEventListener('click', run);
+    list.appendChild(b);
+  };
+  option('Typical brand', ingMeta(ing), () => pick(ing));
+  brandsFor(ing.id).forEach(br => option(esc(br.name), ingMeta({ ...ing, sugar: br.sugar, abv: br.abv }), () => pick(ing, br.id)));
+  const actions = document.createElement('div');
+  actions.className = 'grid2'; actions.style.cssText = 'display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:12px 0';
+  actions.innerHTML = `<button type="button" class="btn">Back</button><button type="button" class="btn primary">+ New brand</button>`;
+  const [back, add] = actions.querySelectorAll('button');
+  back.addEventListener('click', () => { mode = 'list'; renderPicker(); });
+  add.addEventListener('click', () => { mode = 'newbrand'; renderPicker(); });
+  list.appendChild(actions);
 }
 
 function renderForm() {
@@ -1146,9 +1211,13 @@ function renderForm() {
   const q = $('search').value.trim();
   list.innerHTML = `
     <form class="form" id="cform" novalidate>
-      <div class="scan-row"><button type="button" class="btn small" id="c-scan">Scan nutrition label</button><span class="hint">or copy the numbers from the label</span></div>
+      ${SCAN_BUTTONS}
+      <p class="hint">Scan the nutrition label, or copy the numbers from it below.</p>
       <p class="scan-status" id="c-scan-status" hidden></p>
-      <label>Name <input class="field" id="c-name" maxlength="60" value="${esc(q)}" autocomplete="off"></label>
+      <div class="grid2">
+        <label>Name <input class="field" id="c-name" maxlength="60" value="${esc(q)}" placeholder="e.g. Cold brew" autocomplete="off"></label>
+        <label>Brand (optional) <input class="field" id="c-brand" maxlength="40" placeholder="e.g. Stok" autocomplete="off"></label>
+      </div>
       <div class="grid2">
         <label>Serving size <input class="field num" id="c-serv" inputmode="decimal" placeholder="12"></label>
         <label>Serving unit <select class="field" id="c-serv-unit">
@@ -1175,11 +1244,11 @@ function renderForm() {
       </div>
     </form>`;
   $('c-back').addEventListener('click', () => { mode = 'list'; renderPicker(); });
-  $('c-scan').addEventListener('click', () => runScan($('c-scan-status'), r => {
+  wireScan($('cform'), $('c-scan-status'), r => {
     if (r.serv != null) { $('c-serv').value = r.serv; $('c-serv-unit').value = r.servUnit; }
     if (r.sugarG != null) $('c-sugar').value = r.sugarG;
     if (r.abv != null) $('c-abv').value = r.abv;
-  }));
+  });
   $('cform').addEventListener('submit', e => {
     e.preventDefault();
     const num = id => parseFloat($(id).value.replace(',', '.'));
@@ -1192,10 +1261,17 @@ function renderForm() {
     if (sugarG < 0 || abv < 0 || abv > 95) return fail('Check the sugar and alcohol numbers.');
     const servMl = serv * UNITS[$('c-serv-unit').value].ml;
     const flags = ['f', 'c', 'p', 'j'].filter(f => $('c-' + f).checked).join('');
-    const ing = { id: 'c-' + Date.now(), name, cat: 'Mine', sugar: Math.round(sugarG / servMl * 1000) / 10, abv, flags };
+    const sugar = Math.round(sugarG / servMl * 1000) / 10;
+    const ing = { id: 'c-' + Date.now(), name, cat: 'Mine', sugar, abv, flags };
     state.custom.push(ing);
+    const brandName = $('c-brand').value.trim();
+    let brandId;
+    if (brandName) {
+      brandId = 'b-' + Date.now();
+      state.brands.push({ id: brandId, ing: ing.id, name: brandName, serv, servUnit: $('c-serv-unit').value, sugarG, abv, sugar });
+    }
     persist();
-    pick(ing);
+    pick(ing, brandId);
     toast('Saved ' + name + ' to My ingredients');
   });
   setTimeout(() => $('c-name').focus(), 50);
