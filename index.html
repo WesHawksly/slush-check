@@ -182,6 +182,10 @@ section.block { display: flex; flex-direction: column; gap: 12px; }
 .form.brand-form { grid-column: 1 / -1; border-top: 1px solid var(--line); padding: 10px 0 2px; }
 .brand-form .grid3 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr) minmax(0, 1fr); gap: 8px; }
 .brand-form input, .brand-form select { width: 100%; }
+.scan-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.scan-row .hint { margin: 0; }
+.scan-status { margin: 0; font-size: 0.85rem; font-weight: 700; color: var(--good); }
+.scan-status.bad { color: var(--warn); }
 .form-btns { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
 .x { border: 0; background: none; color: var(--muted); font-size: 1.4rem; line-height: 1; width: 36px; height: 40px; cursor: pointer; border-radius: 8px; }
 .empty { text-align: center; color: var(--muted); padding: 22px 12px; border: 2px dashed var(--line); border-radius: 12px; }
@@ -344,13 +348,14 @@ footer { font-size: 0.78rem; color: var(--muted); max-width: 65ch; }
 </dialog>
 
 <div class="toast" id="toast" hidden></div>
+<input type="file" accept="image/*" id="scan-input" hidden>
 
 <script>
 (() => {
 'use strict';
 
 /* Keep in step with VERSION in sw.js. */
-const APP_VERSION = 3;
+const APP_VERSION = 4;
 
 /* ---------- Units & physical constants ---------- */
 const UNITS = {
@@ -754,10 +759,133 @@ function renderAnalysis() {
   ul.hidden = a.issues.length === 0;
 }
 
+/* ---------- Nutrition label scanning ---------- */
+const TESS_URL = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+
+/* parseLabel:start — pulls serving size, total sugars and ABV out of OCR text */
+function parseLabel(raw) {
+  const t = raw.replace(/\r/g, '').replace(/[“”"]/g, '').replace(/(\d)[oO](?=\d|\s*[gm])/g, '$10');
+  const num = s => parseFloat(String(s).replace(',', '.'));
+  const out = {};
+  let m;
+
+  if (/per\s*100\s*m[l1I]/i.test(t)) {
+    out.serv = 100; out.servUnit = 'ml';
+  } else {
+    const i = t.search(/serving\s*size/i);
+    const zone = i >= 0 ? t.slice(i, i + 80) : '';
+    if ((m = zone.match(/(\d+(?:[.,]\d+)?)\s*m[l1I]\b/i))) { out.serv = num(m[1]); out.servUnit = 'ml'; }
+    else if ((m = zone.match(/(\d+(?:[.,]\d+)?)\s*(?:fl\.?\s*)?o[zZ2]/i))) { out.serv = num(m[1]); out.servUnit = 'floz'; }
+    else if ((m = zone.match(/(\d+(?:[.,]\d+)?|½|1\/2)\s*cups?/i))) { out.serv = /½|1\/2/.test(m[1]) ? 0.5 : num(m[1]); out.servUnit = 'cup'; }
+  }
+
+  m = t.match(/total\s*sugars?\s*[:.]?\s*(\d+(?:[.,]\d+)?)\s*(mg|g|9)?/i)
+    || t.match(/of\s*which\s*sugars?\s*[:.]?\s*(\d+(?:[.,]\d+)?)\s*(mg|g|9)?/i)
+    || t.match(/(?:^|\n)[^\S\n]*sugars?\s*[:.]?\s*(\d+(?:[.,]\d+)?)\s*(mg|g|9)?/im);
+  if (m && m[2] !== 'mg') {
+    let s = m[1];
+    // OCR often reads the "g" after a number as a 9 ("22g" becomes "229").
+    if (!m[2] && /^\d{2,}$/.test(s) && s.endsWith('9')) s = s.slice(0, -1);
+    out.sugarG = num(s);
+  }
+
+  m = t.match(/(\d{1,2}(?:[.,]\d{1,2})?)\s*%\s*(?:alc|abv|vol)/i)
+    || t.match(/alc(?:ohol)?\.?\s*(?:by\s*vol(?:ume)?\.?)?\s*[:.]?\s*(\d{1,2}(?:[.,]\d{1,2})?)\s*%/i);
+  if (m) out.abv = num(m[1]);
+
+  // Drop readings that can't be right.
+  if (out.serv != null && !(out.serv > 0 && out.serv * (UNITS[out.servUnit] || { ml: 1 }).ml <= 2000)) { delete out.serv; delete out.servUnit; }
+  if (out.sugarG != null && out.serv && out.sugarG > out.serv * UNITS[out.servUnit].ml * 1.2) delete out.sugarG;
+  if (out.abv != null && !(out.abv > 0 && out.abv <= 75)) delete out.abv;
+  return out;
+}
+/* parseLabel:end */
+
+let tessLoading = null;
+function loadTesseract() {
+  if (window.Tesseract) return Promise.resolve();
+  if (!tessLoading) tessLoading = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = TESS_URL;
+    s.onload = resolve;
+    s.onerror = () => { tessLoading = null; reject(new Error('load')); };
+    document.head.appendChild(s);
+  });
+  return tessLoading;
+}
+
+function pickPhoto() {
+  return new Promise(resolve => {
+    const inp = $('scan-input');
+    inp.value = '';
+    inp.onchange = () => resolve(inp.files[0] || null);
+    inp.click();
+  });
+}
+
+/* Shrink big phone photos and boost contrast; OCR is faster and more accurate on this. */
+async function prepImage(file) {
+  let img;
+  try { img = await createImageBitmap(file, { imageOrientation: 'from-image' }); }
+  catch (e) {
+    img = await new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = URL.createObjectURL(file); });
+  }
+  const scale = Math.min(1, 2000 / Math.max(img.width, img.height));
+  const c = document.createElement('canvas');
+  c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
+  const ctx = c.getContext('2d');
+  ctx.drawImage(img, 0, 0, c.width, c.height);
+  const d = ctx.getImageData(0, 0, c.width, c.height), p = d.data;
+  let lo = 255, hi = 0;
+  for (let i = 0; i < p.length; i += 4) {
+    const g = p[i] * 0.299 + p[i + 1] * 0.587 + p[i + 2] * 0.114;
+    p[i] = g;
+    if (g < lo) lo = g;
+    if (g > hi) hi = g;
+  }
+  const range = Math.max(hi - lo, 1);
+  for (let i = 0; i < p.length; i += 4) { const v = (p[i] - lo) * 255 / range; p[i] = p[i + 1] = p[i + 2] = v; }
+  ctx.putImageData(d, 0, 0);
+  return c;
+}
+
+async function runScan(statusEl, apply) {
+  const say = (msg, bad) => { statusEl.hidden = false; statusEl.textContent = msg; statusEl.classList.toggle('bad', !!bad); };
+  const file = await pickPhoto();
+  if (!file) return;
+  let worker;
+  try {
+    say('Loading the label reader…');
+    await loadTesseract();
+    say('Reading label…');
+    const [canvas, w] = await Promise.all([prepImage(file), Tesseract.createWorker('eng', 1, {
+      logger: m => { if (m.status === 'recognizing text') say(`Reading label… ${Math.round(m.progress * 100)}%`); },
+    })]);
+    worker = w;
+    const { data } = await worker.recognize(canvas);
+    const r = parseLabel(data.text || '');
+    const found = [], missing = [];
+    (r.serv != null ? found : missing).push(r.serv != null ? `serving ${fmt(r.serv, 2)} ${UNITS[r.servUnit].label}` : 'the serving size');
+    (r.sugarG != null ? found : missing).push(r.sugarG != null ? `${fmt(r.sugarG, 1)} g sugars` : 'the sugars');
+    if (r.abv != null) found.push(`${fmt(r.abv, 1)}% alcohol`);
+    if (!found.length) return say('Couldn’t find the numbers on that photo. Try again closer to the label, straight on and in good light, or type them in.', true);
+    apply(r);
+    say(`Found ${found.join(', ')}. Check these against the label.` + (missing.length ? ` Couldn’t read ${missing.join(' or ')}, so type that in.` : ''), missing.length > 0);
+  } catch (e) {
+    say(navigator.onLine === false
+      ? 'Scanning needs an internet connection the first time you use it.'
+      : 'The label reader didn’t load. Check your connection and try again.', true);
+  } finally {
+    if (worker) worker.terminate().catch(() => {});
+  }
+}
+
 function brandForm(row, ing, brand, li) {
   const form = li.querySelector('.brand-form');
   const showAbv = ing.abv > 0 || (brand && brand.abv > 0);
   form.innerHTML = `
+    <div class="scan-row"><button type="button" class="btn small" data-act="scan">Scan nutrition label</button><span class="hint">or type the numbers below</span></div>
+    <p class="scan-status" hidden></p>
     <label>Brand <input class="field" data-f="name" maxlength="40" autocomplete="off" placeholder="e.g. Tropicana" value="${brand ? esc(brand.name) : ''}"></label>
     <div class="grid3">
       <label>Serving size <input class="field num" data-f="serv" inputmode="decimal" placeholder="8" value="${brand ? brand.serv : ''}"></label>
@@ -776,6 +904,11 @@ function brandForm(row, ing, brand, li) {
   const f = k => form.querySelector(`[data-f="${k}"]`);
   const num = k => f(k) ? parseFloat(f(k).value.replace(',', '.')) : NaN;
   f('name').focus();
+  form.querySelector('[data-act="scan"]').addEventListener('click', () => runScan(form.querySelector('.scan-status'), r => {
+    if (r.serv != null) { f('serv').value = r.serv; f('servUnit').value = r.servUnit; }
+    if (r.sugarG != null) f('sugarG').value = r.sugarG;
+    if (r.abv != null && f('abv')) f('abv').value = r.abv;
+  }));
   form.querySelector('[data-act="cancel"]').addEventListener('click', () => renderRows());
   const del = form.querySelector('[data-act="delete"]');
   if (del) {
@@ -1013,7 +1146,8 @@ function renderForm() {
   const q = $('search').value.trim();
   list.innerHTML = `
     <form class="form" id="cform" novalidate>
-      <p class="hint">Copy the numbers from the drink's nutrition label.</p>
+      <div class="scan-row"><button type="button" class="btn small" id="c-scan">Scan nutrition label</button><span class="hint">or copy the numbers from the label</span></div>
+      <p class="scan-status" id="c-scan-status" hidden></p>
       <label>Name <input class="field" id="c-name" maxlength="60" value="${esc(q)}" autocomplete="off"></label>
       <div class="grid2">
         <label>Serving size <input class="field num" id="c-serv" inputmode="decimal" placeholder="12"></label>
@@ -1041,6 +1175,11 @@ function renderForm() {
       </div>
     </form>`;
   $('c-back').addEventListener('click', () => { mode = 'list'; renderPicker(); });
+  $('c-scan').addEventListener('click', () => runScan($('c-scan-status'), r => {
+    if (r.serv != null) { $('c-serv').value = r.serv; $('c-serv-unit').value = r.servUnit; }
+    if (r.sugarG != null) $('c-sugar').value = r.sugarG;
+    if (r.abv != null) $('c-abv').value = r.abv;
+  }));
   $('cform').addEventListener('submit', e => {
     e.preventDefault();
     const num = id => parseFloat($(id).value.replace(',', '.'));
