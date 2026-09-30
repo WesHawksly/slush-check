@@ -143,7 +143,7 @@ button, input, select { font: inherit; color: inherit; }
 .chip.bad { color: var(--bad); } .chip.warn { color: var(--warn); } .chip.info { color: var(--accent); }
 .issue strong { font-weight: 700; }
 .issue p { margin: 0; color: var(--muted); font-size: 0.92rem; }
-.issue .act { justify-self: start; margin-top: 4px; }
+.issue .acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; min-width: 0; }
 
 /* Buttons */
 .btn {
@@ -365,7 +365,7 @@ footer { font-size: 0.78rem; color: var(--muted); max-width: 65ch; }
 'use strict';
 
 /* Keep in step with VERSION in sw.js. */
-const APP_VERSION = 5;
+const APP_VERSION = 6;
 
 /* ---------- Units & physical constants ---------- */
 const UNITS = {
@@ -584,12 +584,14 @@ function measure(row, ing) {
 
 function analyze() {
   let vol = 0, sugar = 0, eth = 0, creamy = 0, pulp = [], fizz = false, coffee = false, solid = false, allJuice = true, n = 0;
+  const parts = [];
   for (const row of state.rows) {
     const ing = effective(row);
     if (!ing) continue;
     const m = measure(row, ing);
     if (m.vol <= 0) continue;
     n++;
+    parts.push({ row, ing, ...m });
     vol += m.vol; sugar += m.sugar; eth += m.eth;
     if (has(ing, 'c')) creamy += m.vol;
     if (has(ing, 'p')) pulp.push(ing.name);
@@ -608,38 +610,93 @@ function analyze() {
 
   let level = 'yes';
   const worse = l => { if (l === 'no' || (l === 'maybe' && level === 'yes')) level = l; };
-  const add = (sev, title, body, action) => out.issues.push({ sev, title, body, action });
-  const T = R.targetSugar / 100;
+  const add = (sev, title, body, actions) => out.issues.push({ sev, title, body, actions: [].concat(actions || []).filter(Boolean) });
+
+  /* Fix helpers. Each fix is offered two ways: add something, or use less of the ingredient causing the problem. */
+  const short = name => name.replace(/\s*\(.*?\)/g, '');
+  const conc = p => p.sugar / p.vol;      // g sugar per ml
+  const strength = p => p.eth / p.vol;    // ml alcohol per ml
+  const maxBy = (arr, f) => arr.reduce((best, p) => (!best || f(p) > f(best) ? p : best), null);
+  const room = state.cap.max - vol;
+  const overflows = ml => ml > room + 1;
+  const fitNote = (ml, hasLess) => !overflows(ml) ? ''
+    : ` Adding that much would go over your ${fmtVol(state.cap.max)} max fill line, so ${hasLess ? 'use less instead, or ' : ''}scale the batch down first.`;
+  // An "add" fix. If it would overflow, it becomes: shrink the whole recipe, then add the (smaller) amount.
+  const addFix = (ml, what, addFn) => {
+    if (!overflows(ml)) return { label: `Add ${fmtVol(ml)} ${what}`, run: () => addFn(ml) };
+    const f = state.cap.max / (vol + ml);
+    return {
+      label: `Scale down, then add ${fmtVol(ml * f)} ${what}`,
+      run: () => { state.rows.forEach(r => { r.amt = Math.round(Number(r.amt || 0) * f * 100) / 100; }); addFn(ml * f); },
+    };
+  };
+  const addToRow = row => ml => {
+    row.amt = roundAmt(Number(row.amt || 0) + fromMl(ml, row.unit), row.unit);
+    edited(); renderRows();
+  };
+  // Remove some of one ingredient so total/vol lands on target. total and target share units with conc.
+  const lessOf = (p, total, c, target) => {
+    const x = (total - target * vol) / (c - target);
+    if (!(x > 0) || x >= p.vol * 0.95) return null;
+    const amt = Number(p.row.amt) || 0;
+    const newAmt = roundAmt(amt * (1 - x / p.vol), p.row.unit);
+    const delta = Math.round((amt - newAmt) * 100) / 100;
+    if (!(delta > 0)) return null;
+    const unitLabel = p.row.unit === 'floz' ? 'oz' : UNITS[p.row.unit].label;
+    return { label: `Use ${fmt(delta, 2)} ${unitLabel} less ${short(p.ing.name)}`, run: () => setAmt(p.row, newAmt, short(p.ing.name)) };
+  };
+  const order = (addAct, lessAct, ml) => overflows(ml) ? [lessAct, addAct] : [addAct, lessAct];
 
   // Sugar
+  const T = R.targetSugar / 100, TS = R.targetSweet / 100;
   if (out.sugarPct < R.lowSugar) {
     const needG = Math.max(0, (T * vol - sugar) / (1 - T * SUGAR_ML_PER_G));
     const syrupMl = Math.max(0, (T * vol - sugar) / (0.62 - T));
-    const fix = `To reach about ${R.targetSugar}%, stir in ${fmtSugarG(needG)} of sugar until it dissolves, or add ${fmtVol(syrupMl)} of simple syrup.`;
-    const action = { label: 'Add ' + fmtVol(syrupMl) + ' simple syrup', run: () => addAmount('simple-syrup', syrupMl) };
+    const bland = maxBy(parts.filter(p => p.eth === 0 && conc(p) < T), p => p.vol);
+    const less = bland && lessOf(bland, sugar, conc(bland), T);
+    const fix = `To reach about ${R.targetSugar}%, stir in ${fmtSugarG(needG)} of sugar until it dissolves, or add ${fmtVol(syrupMl)} of simple syrup`
+      + (less ? `, or use less ${short(bland.ing.name)}.` : '.') + fitNote(syrupMl, !!less);
+    const acts = order(addFix(syrupMl, 'simple syrup', ml => addAmount('simple-syrup', ml)), less, syrupMl);
     if (out.sugarPct < R.minSugar) {
       worse('no');
-      add('bad', 'Not enough sugar', `At ${fmt(out.sugarPct)}% sugar this freezes into hard ice rather than slush. Ninja calls for at least ${R.minSugar}%. ${fix}`, action);
+      add('bad', 'Not enough sugar', `At ${fmt(out.sugarPct)}% sugar this freezes into hard ice rather than slush. Ninja calls for at least ${R.minSugar}%. ${fix}`, acts);
     } else {
       worse('maybe');
-      add('warn', 'Sugar is on the low side', `It should slush, but expect a coarse, icy texture. ${fix}`, action);
+      add('warn', 'Sugar is on the low side', `It should slush, but expect a coarse, icy texture. ${fix}`, acts);
     }
-  } else if (out.sugarPct > R.maxSugar) {
-    worse('maybe');
-    const waterMl = sugar / (R.targetSweet / 100) - vol;
-    add('warn', 'Very sweet', `At ${fmt(out.sugarPct)}% sugar it may stay soupy and take a long time to freeze. Adding ${fmtVol(waterMl)} of water brings it to about ${R.targetSweet}%.`,
-      { label: 'Add ' + fmtVol(waterMl) + ' water', run: () => addAmount('water', waterMl) });
   } else if (out.sugarPct > R.softSugar) {
-    add('info', 'Sweet mix', 'Expect a softer slush and a longer freeze time.');
+    const waterMl = sugar / TS - vol;
+    const sweet = maxBy(parts.filter(p => conc(p) > TS), conc);
+    const less = sweet && lessOf(sweet, sugar, conc(sweet), TS);
+    const fix = `Add ${fmtVol(waterMl)} of water` + (less ? ` or use less ${short(sweet.ing.name)}` : '')
+      + ` to bring it to about ${R.targetSweet}%.` + fitNote(waterMl, !!less);
+    const acts = order(addFix(waterMl, 'water', ml => addAmount('water', ml)), less, waterMl);
+    if (out.sugarPct > R.maxSugar) {
+      worse('maybe');
+      add('warn', 'Very sweet', `At ${fmt(out.sugarPct)}% sugar it may stay soupy and take a long time to freeze. ${fix}`, acts);
+    } else {
+      add('info', 'Sweet mix', `Expect a softer slush and a longer freeze. For a firmer slush: ${fix}`, acts);
+    }
   }
 
   // Alcohol
-  if (out.abv > R.maxAbv) {
-    worse('no');
-    const mixMl = eth / (R.targetAbv / 100) - vol;
-    add('bad', 'Too much alcohol to freeze', `At ${fmt(out.abv)}% ABV it won't set. Ninja's limit is ${R.maxAbv}%. Add about ${fmtVol(mixMl)} of a sugary mixer such as juice, lemonade or regular soda to bring it to around ${R.targetAbv}%.`);
-  } else if (out.abv >= R.strongAbv) {
-    add('warn', 'Strong mix', `At ${fmt(out.abv)}% ABV it will be softer and slower to freeze. Under ${R.strongAbv}% freezes more firmly.`);
+  if (out.abv >= R.strongAbv) {
+    const A = R.targetAbv / 100;
+    const mixMl = eth / A - vol;
+    const strong = maxBy(parts.filter(p => p.eth > 0), strength);
+    const less = strong && lessOf(strong, eth, strength(strong), A);
+    // A mixer at juice or soda strength already in the recipe; syrups would make it far too sweet.
+    const mixer = maxBy(parts.filter(p => p.eth === 0 && conc(p) >= 0.06 && conc(p) <= 0.2 && LIQUID_UNITS.includes(p.row.unit)), p => p.vol);
+    const more = mixer && addFix(mixMl, 'more ' + short(mixer.ing.name), addToRow(mixer.row));
+    const fix = `To bring it to about ${R.targetAbv}%, ` + (less ? `use less ${short(strong.ing.name)}, or ` : '')
+      + `add ${fmtVol(mixMl)} of ${mixer ? short(mixer.ing.name) : 'a sugary mixer such as juice, lemonade or regular soda'}.` + fitNote(mixMl, !!less);
+    const acts = order(more, less, mixMl);
+    if (out.abv > R.maxAbv) {
+      worse('no');
+      add('bad', 'Too much alcohol to freeze', `At ${fmt(out.abv)}% ABV it won't set. Ninja's limit is ${R.maxAbv}%. ${fix}`, acts);
+    } else {
+      add('warn', 'Strong mix', `At ${fmt(out.abv)}% ABV it will be softer and slower to freeze. ${fix}`, acts);
+    }
   } else if (out.abv > 0 && out.abv < R.spikedMin) {
     add('info', 'Only a splash of alcohol', `At ${fmt(out.abv, 1)}% ABV the regular Slush preset works. Spiked Slush is meant for ${R.spikedMin}% and up.`);
   }
@@ -698,6 +755,12 @@ function addAmount(id, ml) {
   edited();
   renderRows();
   toast('Added ' + findIng(id).name.toLowerCase());
+}
+function setAmt(row, amt, name) {
+  row.amt = amt;
+  edited();
+  renderRows();
+  toast('Updated ' + name);
 }
 function scaleTo(targetMl) {
   const a = analyze();
@@ -758,11 +821,16 @@ function renderAnalysis() {
     const li = document.createElement('li');
     li.className = 'issue';
     li.innerHTML = `<span class="chip ${it.sev}">${it.sev === 'bad' ? 'Fix' : it.sev === 'warn' ? 'Check' : 'Tip'}</span><strong>${esc(it.title)}</strong><p>${esc(it.body)}</p>`;
-    if (it.action) {
-      const b = document.createElement('button');
-      b.type = 'button'; b.className = 'btn small act'; b.textContent = it.action.label;
-      b.addEventListener('click', it.action.run);
-      li.appendChild(b);
+    if (it.actions.length) {
+      const acts = document.createElement('div');
+      acts.className = 'acts';
+      it.actions.forEach(a => {
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'btn small'; b.textContent = a.label;
+        b.addEventListener('click', a.run);
+        acts.appendChild(b);
+      });
+      li.appendChild(acts);
     }
     ul.appendChild(li);
   });
