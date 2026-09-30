@@ -324,7 +324,7 @@ footer { font-size: 0.78rem; color: var(--muted); max-width: 65ch; }
     </div>
   </details>
 
-  <footer>Estimates only. Check your Ninja SLUSHi manual for the rules that apply to your model.</footer>
+  <footer>Estimates only. Check your Ninja SLUSHi manual for the rules that apply to your model.<br><span class="num" id="app-version"></span></footer>
 </main>
 
 <dialog class="sheet" id="sheet">
@@ -348,6 +348,9 @@ footer { font-size: 0.78rem; color: var(--muted); max-width: 65ch; }
 <script>
 (() => {
 'use strict';
+
+/* Keep in step with VERSION in sw.js. */
+const APP_VERSION = 3;
 
 /* ---------- Units & physical constants ---------- */
 const UNITS = {
@@ -1090,6 +1093,7 @@ $('save-form').addEventListener('submit', e => {
   persist(); renderUnits(); renderAnalysis();
 }));
 
+$('app-version').textContent = 'Version ' + APP_VERSION;
 renderUnits();
 renderRows();
 renderSaved();
