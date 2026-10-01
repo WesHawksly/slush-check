@@ -250,6 +250,9 @@ dialog.sheet::backdrop { background: rgb(5 10 20 / 0.55); }
 .list .cat-h { padding: 12px 8px 2px; }
 .list .mine { display: flex; align-items: center; }
 .list .mine button.ing { flex: 1; }
+.list .mine-cat { display: flex; align-items: center; gap: 8px; padding: 6px 8px 10px; border-bottom: 1px solid var(--line); font-size: 0.82rem; color: var(--muted); }
+.list .mine-cat select { flex: 1; min-width: 0; min-height: 34px; padding-block: 2px; }
+.list .mine.has-cat button.ing { border-bottom: 0; }
 .form { display: flex; flex-direction: column; gap: 10px; padding: 12px 8px; }
 .form label { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; font-weight: 700; }
 .form .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
@@ -392,7 +395,7 @@ footer { font-size: 0.78rem; color: var(--muted); max-width: 65ch; }
 'use strict';
 
 /* Keep in step with VERSION in sw.js. */
-const APP_VERSION = 9;
+const APP_VERSION = 10;
 
 /* ---------- Units & physical constants ---------- */
 const UNITS = {
@@ -1195,8 +1198,9 @@ sheet.addEventListener('click', e => { if (e.target === sheet) closePicker(); })
 $('search').addEventListener('input', renderPicker);
 
 function defaultMl(ing) {
-  const oz = ['Spirits'].includes(ing.cat) ? 4
-    : ['Liqueurs', 'Syrups & sweeteners'].includes(ing.cat) || ['lemon-juice', 'lime-juice'].includes(ing.id) ? 2
+  const cat = ing.type || ing.cat;
+  const oz = ['Spirits'].includes(cat) ? 4
+    : ['Liqueurs', 'Syrups & sweeteners'].includes(cat) || ['lemon-juice', 'lime-juice'].includes(ing.id) ? 2
     : ing.sugar > 40 ? 2 : 8;
   return oz * UNITS.floz.ml;
 }
@@ -1242,8 +1246,10 @@ function renderPicker() {
   catsEl.querySelectorAll('button').forEach(b => b.addEventListener('click', () => { pickCat = b.dataset.cat; renderPicker(); }));
 
   const q = $('search').value.trim().toLowerCase();
+  // Your own ingredients always list under My ingredients, and also under the category you gave them.
   const custom = state.custom.map(c => ({ ...c, cat: 'Mine' }));
-  let items = [...custom, ...LIB].filter(x => (pickCat === 'All' || x.cat === pickCat) && (!q || x.name.toLowerCase().includes(q)));
+  let items = [...custom, ...LIB].filter(x => (pickCat === 'All' || x.cat === pickCat || (x.cat === 'Mine' && x.type === pickCat))
+    && (!q || x.name.toLowerCase().includes(q)));
   list.innerHTML = '';
 
   let lastCat = null;
@@ -1274,6 +1280,19 @@ function renderPicker() {
       });
       wrap.append(b, del);
       list.appendChild(wrap);
+      if (pickCat === 'Mine') {
+        wrap.classList.add('has-cat');
+        const row = document.createElement('label');
+        row.className = 'mine-cat';
+        row.innerHTML = `Category <select class="field" aria-label="Category of ${esc(ing.name)}">${catOptions(ing.type)}</select>`;
+        row.querySelector('select').addEventListener('change', e => {
+          const c = state.custom.find(x => x.id === ing.id);
+          if (e.target.value) c.type = e.target.value; else delete c.type;
+          persist();
+          toast(e.target.value ? 'Moved ' + ing.name + ' to ' + e.target.value : 'Removed category');
+        });
+        list.appendChild(row);
+      }
     } else list.appendChild(b);
   });
   if (!items.length) {
@@ -1309,6 +1328,9 @@ function renderBrandStep() {
   list.appendChild(actions);
 }
 
+const catOptions = sel => '<option value="">None</option>'
+  + CATS.map(c => `<option value="${esc(c)}"${c === sel ? ' selected' : ''}>${esc(c)}</option>`).join('');
+
 function renderForm() {
   const list = $('list');
   const q = $('search').value.trim();
@@ -1321,6 +1343,7 @@ function renderForm() {
         <label>Name <input class="field" id="c-name" maxlength="60" value="${esc(q)}" placeholder="e.g. Cold brew" autocomplete="off"></label>
         <label>Brand (optional) <input class="field" id="c-brand" maxlength="40" placeholder="e.g. Stok" autocomplete="off"></label>
       </div>
+      <label>Category (optional) <select class="field" id="c-type">${catOptions(pickCat !== 'All' && pickCat !== 'Mine' ? pickCat : '')}</select></label>
       <div class="grid2">
         <label>Serving size <input class="field num" id="c-serv" inputmode="decimal" placeholder="12"></label>
         <label>Serving unit <select class="field" id="c-serv-unit">
@@ -1366,6 +1389,7 @@ function renderForm() {
     const flags = ['f', 'c', 'p', 'j'].filter(f => $('c-' + f).checked).join('');
     const sugar = Math.round(sugarG / servMl * 1000) / 10;
     const ing = { id: 'c-' + Date.now(), name, cat: 'Mine', sugar, abv, flags };
+    if ($('c-type').value) ing.type = $('c-type').value;
     state.custom.push(ing);
     const brandName = $('c-brand').value.trim();
     let brandId;
