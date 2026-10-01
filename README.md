@@ -50,4 +50,4 @@ Results are estimates. Check your SLUSHi manual for the rules that apply to your
 
 ## Updating the app
 
-The app's version number is shown at the bottom of the screen. When shipping a change, bump `APP_VERSION` in `index.html` and `VERSION` in `sw.js`, then upload both files. Installed copies pick up the update the next time they open while online.
+The app's version number is shown at the bottom of the screen. When shipping a change, bump `APP_VERSION` in `index.html` and `VERSION` in `sw.js`, add a line for the new version to `CHANGES` in `index.html`, then upload both files. Installed copies pick up the update the next time they open while online, and show the `CHANGES` notes once.
