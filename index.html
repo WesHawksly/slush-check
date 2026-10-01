@@ -78,6 +78,15 @@ button, input, select { font: inherit; color: inherit; }
   padding: 4px 10px; border-radius: 999px; font-size: 0.8rem; font-weight: 700;
   background: var(--surface); border: 1px solid var(--line); white-space: nowrap;
 }
+.pill-text { display: flex; flex-direction: column; line-height: 1.2; min-width: 0; }
+.pill-sub { font-size: 0.7rem; font-weight: 700; color: var(--muted); }
+.pill.two-line { border-radius: 12px; padding-block: 3px; }
+@media (max-width: 380px) {
+  .top-inner { gap: 8px; }
+  .brand { font-size: 1rem; }
+  .pill { padding-inline: 8px; }
+  .seg button { padding-inline: 8px; }
+}
 .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: none; }
 .lvl-yes .dot { background: var(--good); }
 .lvl-maybe .dot { background: var(--warn); }
@@ -262,7 +271,7 @@ footer { font-size: 0.78rem; color: var(--muted); max-width: 65ch; }
 <header class="top">
   <div class="top-inner">
     <div class="brand">Slush<span>Check</span></div>
-    <div class="pill" id="pill"><span class="dot"></span><span id="pill-text">…</span></div>
+    <div class="pill" id="pill"><span class="dot"></span><span class="pill-text"><span id="pill-text">…</span><span class="pill-sub" id="pill-sub" hidden></span></span></div>
     <div class="seg" role="group" aria-label="Units">
       <button type="button" id="u-oz" data-unit="floz">oz</button>
       <button type="button" id="u-ml" data-unit="ml">ml</button>
@@ -383,7 +392,7 @@ footer { font-size: 0.78rem; color: var(--muted); max-width: 65ch; }
 'use strict';
 
 /* Keep in step with VERSION in sw.js. */
-const APP_VERSION = 8;
+const APP_VERSION = 9;
 
 /* ---------- Units & physical constants ---------- */
 const UNITS = {
@@ -808,7 +817,10 @@ function renderAnalysis() {
   const a = analyze();
   const v = $('verdict');
   v.className = 'verdict lvl-' + a.level;
-  $('pill').className = 'pill lvl-' + a.level;
+  const showAbv = a.level !== 'empty' && a.abv > 0;
+  $('pill').className = 'pill lvl-' + a.level + (showAbv ? ' two-line' : '');
+  $('pill-sub').hidden = !showAbv;
+  $('pill-sub').textContent = showAbv ? fmt(a.abv) + '% ABV' : '';
   $('pill-text').textContent = a.level === 'empty' ? PILL.empty : PILL[a.level] + ' · ' + fmt(a.sugarPct) + '%';
   $('v-title').textContent = TITLES[a.level];
   $('v-sub').innerHTML = a.level === 'empty' ? 'Build your mix below to see if it will freeze.'
