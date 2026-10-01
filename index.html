@@ -266,6 +266,12 @@ dialog.sheet::backdrop { background: rgb(5 10 20 / 0.55); }
   background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 10px; font-weight: 700; font-size: 0.9rem;
   z-index: 20; max-width: calc(100% - 32px);
 }
+.whatsnew {
+  background: var(--surface); border: 1px solid var(--line); border-left: 6px solid var(--accent);
+  border-radius: var(--radius); padding: 14px 14px 14px 16px; display: flex; flex-direction: column; gap: 8px;
+}
+.whatsnew ul { margin: 0; padding-left: 1.2em; display: flex; flex-direction: column; gap: 4px; font-size: 0.92rem; }
+.whatsnew .btn { align-self: flex-end; }
 footer { font-size: 0.78rem; color: var(--muted); max-width: 65ch; }
 @media (prefers-reduced-motion: reduce) { .marker { transition: none; } }
 </style>
@@ -283,6 +289,11 @@ footer { font-size: 0.78rem; color: var(--muted); max-width: 65ch; }
 </header>
 
 <main class="app">
+  <section class="whatsnew" id="whatsnew" aria-live="polite" hidden>
+    <h2 id="whatsnew-title">What’s new</h2>
+    <ul id="whatsnew-list"></ul>
+    <button type="button" class="btn small primary" id="whatsnew-ok">Got it</button>
+  </section>
   <section class="verdict" id="verdict" aria-live="polite">
     <div>
       <div class="v-title" id="v-title">…</div>
@@ -395,7 +406,15 @@ footer { font-size: 0.78rem; color: var(--muted); max-width: 65ch; }
 'use strict';
 
 /* Keep in step with VERSION in sw.js. */
-const APP_VERSION = 10;
+const APP_VERSION = 11;
+/* Release notes, shown once after an update. Add a line for each version you ship. */
+const CHANGES = {
+  8: ['Scale a mix to any batch size, or tap ½×, 2× or Fill to max. The ratios stay the same.'],
+  9: ['The status pill at the top now shows the ABV when your mix has alcohol.'],
+  10: ['Give your own ingredients a category. They show under My ingredients and in that category.'],
+  11: ['You’ll see a note like this one after each update.'],
+};
+const CHANGES_SHOWN_MAX = 4;
 
 /* ---------- Units & physical constants ---------- */
 const UNITS = {
@@ -550,6 +569,8 @@ let state = {
 try {
   const raw = localStorage.getItem(STORE_KEY);
   if (raw) state = { ...state, ...JSON.parse(raw) };
+  // First visit: nothing to announce. Existing users from before update notes existed see the recent ones.
+  if (state.seenVersion == null) state.seenVersion = raw ? 0 : APP_VERSION;
 } catch (e) { /* storage unavailable; run with defaults */ }
 function persist() {
   try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { /* ignore */ }
@@ -1447,6 +1468,21 @@ document.querySelectorAll('[data-scale]').forEach(b => b.addEventListener('click
 }));
 
 $('app-version').textContent = 'Version ' + APP_VERSION;
+function renderWhatsNew() {
+  const seen = Number(state.seenVersion) || 0;
+  if (seen >= APP_VERSION) return;
+  const notes = Object.keys(CHANGES).map(Number).filter(v => v > seen && v <= APP_VERSION)
+    .sort((a, b) => b - a).slice(0, CHANGES_SHOWN_MAX).flatMap(v => CHANGES[v]);
+  // Mark it seen now, so the note shows only once even if it isn't dismissed.
+  state.seenVersion = APP_VERSION;
+  persist();
+  if (!notes.length) return;
+  $('whatsnew-title').textContent = 'Updated to version ' + APP_VERSION;
+  $('whatsnew-list').innerHTML = notes.map(n => `<li>${esc(n)}</li>`).join('');
+  $('whatsnew').hidden = false;
+}
+$('whatsnew-ok').addEventListener('click', () => { $('whatsnew').hidden = true; });
+renderWhatsNew();
 renderUnits();
 renderRows();
 renderSaved();
