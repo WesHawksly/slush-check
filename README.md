@@ -31,6 +31,7 @@ On iPhone, use the app from its home screen icon. Safari clears a website's save
 - Choose the brand you're using, or add a new one by scanning its nutrition label with your camera.
 - See whether the mix will slush, which preset to use (Slush, Spiked Slush, Frozen Juice, Milkshake or Frappé), and how far to adjust the frozen level.
 - Get specific fixes when a mix won't work, such as how much simple syrup to add, with one-tap buttons for some of them.
+- Scale a mix up or down to any batch size (or ½×, 2×, or your max fill line) while keeping the same ratios.
 - Save your favorite mixes on your phone.
 
 ## How the check works
