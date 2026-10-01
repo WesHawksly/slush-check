@@ -1,6 +1,6 @@
 // Caches the app so it opens offline once installed.
 // Bump VERSION (and APP_VERSION in index.html) when shipping changes.
-const VERSION = 'slushcheck-v7';
+const VERSION = 'slushcheck-v8';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './icon-maskable-512.png'];
 
 self.addEventListener('install', e => {

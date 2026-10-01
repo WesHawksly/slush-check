@@ -190,6 +190,11 @@ section.block { display: flex; flex-direction: column; gap: 12px; }
 .x { border: 0; background: none; color: var(--muted); font-size: 1.4rem; line-height: 1; width: 36px; height: 40px; cursor: pointer; border-radius: 8px; }
 .empty { text-align: center; color: var(--muted); padding: 22px 12px; border: 2px dashed var(--line); border-radius: 12px; }
 .add-btn { width: 100%; min-height: 48px; font-size: 1rem; }
+.scale { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }
+.scale-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.scale-row input { width: 5rem; text-align: right; }
+.scale-row .unit { color: var(--muted); }
+.scale-quick { display: flex; gap: 6px; flex-wrap: wrap; }
 
 /* Saved */
 .save-row { display: flex; gap: 8px; }
@@ -301,6 +306,19 @@ footer { font-size: 0.78rem; color: var(--muted); max-width: 65ch; }
     <div class="example-note" id="example-note">This is an example recipe. Tap <strong>Clear</strong> to start your own.</div>
     <ul class="rows" id="rows"></ul>
     <div class="empty" id="empty" hidden>No ingredients yet. Add what you plan to pour in.</div>
+    <form class="scale" id="scale-form" novalidate>
+      <div class="scale-row">
+        <label class="label" for="scale-to">Scale batch to</label>
+        <input class="field num" id="scale-to" type="text" inputmode="decimal">
+        <span class="unit" id="scale-unit">oz</span>
+        <button class="btn small" type="submit">Scale</button>
+      </div>
+      <div class="scale-quick">
+        <button type="button" class="btn small ghost" data-scale="0.5">½×</button>
+        <button type="button" class="btn small ghost" data-scale="2">2×</button>
+        <button type="button" class="btn small ghost" data-scale="max">Fill to max</button>
+      </div>
+    </form>
     <button type="button" class="btn primary add-btn" id="add">+ Add ingredient</button>
   </section>
 
@@ -365,7 +383,7 @@ footer { font-size: 0.78rem; color: var(--muted); max-width: 65ch; }
 'use strict';
 
 /* Keep in step with VERSION in sw.js. */
-const APP_VERSION = 7;
+const APP_VERSION = 8;
 
 /* ---------- Units & physical constants ---------- */
 const UNITS = {
@@ -547,6 +565,8 @@ function fmtVol(ml) {
   if (oz < 1.5) return fmt(ml / UNITS.tbsp.ml, 1) + ' tbsp';
   return fmt(oz, 1) + ' oz';
 }
+/* A volume as a plain number in the display unit, for input fields. */
+const volInUnit = ml => state.unit === 'ml' ? Math.round(ml) : Math.round(ml / UNITS.floz.ml * 10) / 10;
 const fmtSugarG = g => Math.round(g) + ' g (about ' + fmt(g / 12.5, 1) + ' tbsp)';
 const fmtTemp = c => fmt(c * 9 / 5 + 32, 1) + '°F';
 const roundAmt = (v, unit) => unit === 'ml' || unit === 'g' ? Math.max(1, Math.round(v)) : Math.max(0.25, Math.round(v * 4) / 4);
@@ -762,9 +782,10 @@ function setAmt(row, amt, name) {
   renderRows();
   toast('Updated ' + name);
 }
+/* Multiply every amount by the same factor, so the ratios (and sugar % and ABV) stay the same. */
 function scaleTo(targetMl) {
   const a = analyze();
-  if (!a.vol) return;
+  if (!a.vol || !(targetMl > 0)) return;
   const f = targetMl / a.vol;
   state.rows.forEach(r => { r.amt = Math.round(Number(r.amt || 0) * f * 100) / 100; });
   edited();
@@ -809,6 +830,8 @@ function renderAnalysis() {
   $('s-fp').textContent = fmtTemp(a.fpC);
   $('s-fp-sub').textContent = fmt(a.fpC, 1) + '°C, estimate';
   $('s-vol').textContent = fmtVol(a.vol);
+  $('scale-form').hidden = a.vol <= 0;
+  if (document.activeElement !== $('scale-to')) $('scale-to').value = a.vol > 0 ? volInUnit(a.vol) : '';
   $('s-vol-sub').textContent = `fill lines ${fmtVol(state.cap.min)}–${fmtVol(state.cap.max)}`;
   $('marker').style.left = Math.min(a.sugarPct, SCALE_MAX) / SCALE_MAX * 100 + '%';
   $('marker').hidden = a.level === 'empty';
@@ -1105,9 +1128,9 @@ function renderRows() {
 function renderUnits() {
   $('u-oz').setAttribute('aria-pressed', state.unit === 'floz');
   $('u-ml').setAttribute('aria-pressed', state.unit === 'ml');
-  const conv = ml => state.unit === 'ml' ? Math.round(ml) : fmt(ml / UNITS.floz.ml, 1);
-  $('cap-min').value = conv(state.cap.min);
-  $('cap-max').value = conv(state.cap.max);
+  $('cap-min').value = volInUnit(state.cap.min);
+  $('cap-max').value = volInUnit(state.cap.max);
+  $('scale-unit').textContent = state.unit === 'ml' ? 'ml' : 'oz';
   $('cap-min').setAttribute('aria-label', 'Min fill in ' + UNITS[state.unit].label);
 }
 
@@ -1369,6 +1392,17 @@ $('save-form').addEventListener('submit', e => {
   persist(); renderSaved();
   toast(i >= 0 ? 'Updated ' + name : 'Saved ' + name);
 });
+$('scale-form').addEventListener('submit', e => {
+  e.preventDefault();
+  const v = parseFloat($('scale-to').value.replace(',', '.'));
+  if (!(v > 0)) { $('scale-to').focus(); return toast('Enter the batch size you want'); }
+  $('scale-to').blur();
+  scaleTo(v * (state.unit === 'ml' ? 1 : UNITS.floz.ml));
+});
+document.querySelectorAll('[data-scale]').forEach(b => b.addEventListener('click', () => {
+  const k = b.dataset.scale;
+  scaleTo(k === 'max' ? state.cap.max : analyze().vol * Number(k));
+}));
 ['cap-min', 'cap-max'].forEach(id => $(id).addEventListener('change', e => {
   const v = parseFloat(e.target.value.replace(',', '.'));
   if (v > 0) state.cap[id === 'cap-min' ? 'min' : 'max'] = v * (state.unit === 'ml' ? 1 : UNITS.floz.ml);
